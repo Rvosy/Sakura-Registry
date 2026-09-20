@@ -1,4 +1,50 @@
 {
   "schema_version": 1,
-  "plugins": []
+  "plugins": [
+    {
+      "id": "sakura.visual.spine",
+      "repository": "https://github.com/Rvosy/Sakura-Spine",
+      "versions": [
+        {
+          "version": "0.2.6",
+          "commit": "6f17c62310c5a7fdd60c7aab82391572db2d9031",
+          "manifest": {
+            "api": 4,
+            "id": "sakura.visual.spine",
+            "name": "Spine",
+            "author": "Sakura",
+            "description": "Spine 3.6 角色的表情、动画和编辑。",
+            "version": "0.2.6",
+            "entry": "plugin:SpinePlugin",
+            "enabled": true,
+            "priority": 40,
+            "provides": [
+              "sakura.visual.spine"
+            ],
+            "requires": [
+              "sakura.host.character",
+              "sakura.host.logging"
+            ],
+            "visuals": [
+              {
+                "type": "spine.json@1",
+                "service": "sakura.visual.spine",
+                "contract": 1,
+                "renderer": "renderer.mjs",
+                "editor": "editor.mjs"
+              }
+            ],
+            "presentation": {
+              "kind": "provider",
+              "category": "model",
+              "icon": "person-standing"
+            }
+          },
+          "notes": "自动收录流程验收：验证 Issue 自动检查、维护者审批、生成 PR 和 CI。生成的 PR 保持未合并，供维护者检查；不启用 CDN，不代表生产上架。",
+          "yanked": false,
+          "yank_reason": ""
+        }
+      ]
+    }
+  ]
 }
