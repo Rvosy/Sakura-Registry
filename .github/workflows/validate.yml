@@ -1,0 +1,58 @@
+name: Registry validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: python -m registry validate
+      - run: python -m registry validate --registry examples/spine.json
+      - name: Reject rewritten history
+        env:
+          REGISTRY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python tools/check_history.py
+
+  sample:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Build pinned sample without executing upstream code
+        run: python -m registry build --registry examples/spine.json --output dist/sample --base-url https://example.invalid
+      - name: Build accepted registry records
+        run: python -m registry build --output dist/registry --base-url https://example.invalid
+      - uses: actions/upload-artifact@v4
+        with:
+          name: registry-preview
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
