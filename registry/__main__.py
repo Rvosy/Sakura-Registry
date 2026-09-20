@@ -18,10 +18,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         records = read_json(args.registry)
-        validate_registry(records)
         if args.command == "validate":
             if args.previous:
                 validate_history(records, read_json(args.previous))
+            else:
+                validate_registry(records)
             print("Registry validated.")
         else:
             catalog = build_catalog(records, args.output, args.base_url)

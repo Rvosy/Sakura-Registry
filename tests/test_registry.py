@@ -48,16 +48,18 @@ class RegistryTests(unittest.TestCase):
     def package(self, source, release=None):
         return package_source(source, "https://github.com/example/notes", release or records()["plugins"][0]["versions"][0])
 
-    def test_package_preserves_runtime_and_licenses_but_removes_secrets(self):
+    def test_package_preserves_resources_but_removes_local_config(self):
         data = archive([("LICENSE", "license"), ("vendor/runtime.js", "runtime"), ("dist/ui.js", "built UI"),
                         (".env", "SECRET"), ("sub/.env.production", "SECRET"),
                         (".github/workflows/build.yml", "untrusted"), ("logs/run.log", "private"),
-                        ("private.key", "key"), ("__pycache__/x.pyc", "cache")])
+                        ("id_rsa", "private key"), ("__pycache__/x.pyc", "cache"),
+                        ("vendor/ca.pem", "public certificate"), ("assets/map.key", "resource")])
         first = self.package(data)
         self.assertEqual(first, self.package(data))
         with zipfile.ZipFile(io.BytesIO(first)) as z:
             self.assertEqual(set(z.namelist()), {"notes/plugin.yaml", "notes/plugin.py", "notes/LICENSE",
-                                               "notes/vendor/runtime.js", "notes/dist/ui.js"})
+                                               "notes/vendor/runtime.js", "notes/dist/ui.js",
+                                               "notes/vendor/ca.pem", "notes/assets/map.key"})
             self.assertEqual(z.read("notes/vendor/runtime.js"), b"runtime")
 
     def test_paths_unsafe_on_windows_or_posix_are_rejected(self):
@@ -70,12 +72,19 @@ class RegistryTests(unittest.TestCase):
             with self.subTest(names=names), self.assertRaisesRegex(RegistryError, "COLLISION"):
                 self.package(archive([(n, "x") for n in names]))
 
-    def test_symlink_is_never_followed_even_in_excluded_directory(self):
-        info = zipfile.ZipInfo(f"notes-{COMMIT}/.github/link")
+    def test_symlink_in_package_is_rejected(self):
+        info = zipfile.ZipInfo(f"notes-{COMMIT}/link")
         info.create_system = 3
         info.external_attr = (stat.S_IFLNK | 0o777) << 16
         with self.assertRaisesRegex(RegistryError, "SPECIAL_FILE"):
             self.package(archive([(info, "../../secret")]))
+
+    def test_excluded_files_do_not_affect_package_validation(self):
+        info = zipfile.ZipInfo(f"notes-{COMMIT}/.github/link")
+        info.create_system = 3
+        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        data = archive([(info, "../../secret"), ("logs/CON.log", "log")])
+        self.assertEqual(self.package(data), self.package(archive()))
 
     def test_nested_manifest_and_snapshot_change_fail(self):
         with self.assertRaisesRegex(RegistryError, "NESTED_MANIFEST"):
@@ -94,18 +103,18 @@ class RegistryTests(unittest.TestCase):
 
     def test_file_count_and_size_limits_are_enforced(self):
         for limit, value, code in (("MAX_SOURCE_BYTES", 10, "SOURCE_TOO_LARGE"),
-                                   ("MAX_SOURCE_EXPANDED", 10, "SOURCE_TOO_LARGE"),
-                                   ("MAX_SOURCE_ENTRIES", 1, "TOO_MANY_ENTRIES"),
                                    ("MAX_FILES", 1, "PACKAGE_TOO_LARGE"),
                                    ("MAX_PACKAGE_BYTES", 10, "PACKAGE_TOO_LARGE"),
                                    ("MAX_FILE_BYTES", 10, "FILE_TOO_LARGE")):
             with self.subTest(limit=limit), patch(f"registry.core.{limit}", value), self.assertRaisesRegex(RegistryError, code):
                 self.package(archive())
 
-    def test_snapshot_rejects_ambiguous_yaml(self):
-        for text in ("api: 4\napi: 3", "x: &anchor []\ny: *anchor", "!!python/object/apply:os.system [echo unsafe]"):
-            with self.subTest(text=text), self.assertRaises(RegistryError):
-                parse_manifest(text.encode())
+    def test_manifest_uses_safe_yaml_and_accepts_standard_aliases(self):
+        text = ('api: 4\nid: notes\nversion: 1.0.0\nentry: plugin:Plugin\n'
+                'provides: &services [notes]\nrequires: *services\n')
+        self.assertEqual(parse_manifest(text.encode())["requires"], ["notes"])
+        with self.assertRaisesRegex(RegistryError, "MANIFEST_INVALID"):
+            parse_manifest(b"!!python/object/apply:os.system [echo unsafe]")
         with self.assertRaisesRegex(RegistryError, "MANIFEST_NOT_JSON"):
             parse_manifest((json.dumps(MANIFEST)[:-1] + ', "x": .nan}').encode())
 
@@ -122,9 +131,11 @@ class RegistryTests(unittest.TestCase):
         current = copy.deepcopy(previous)
         current["plugins"][0]["versions"][0].update(yanked=True, yank_reason="Broken settings")
         validate_history(current, previous)
+        current["plugins"][0]["versions"][0]["notes"] = "Corrected release notes"
+        validate_history(current, previous)
         for mutate in (
             lambda c: c["plugins"][0]["versions"][0].update(commit="b" * 40),
-            lambda c: c["plugins"][0]["versions"][0].update(notes="Changed review"),
+            lambda c: c["plugins"][0]["versions"][0]["manifest"].update(requires=["new.service"]),
             lambda c: c["plugins"][0].update(repository="https://github.com/other/notes"),
             lambda c: c.update(plugins=[]),
         ):

@@ -14,7 +14,7 @@ def main():
     args = parser.parse_args()
     sys.path.insert(0, str(args.sakura_root.resolve(strict=True)))
     from app.plugins.discovery import PluginDiscovery
-    from app.plugins.installer import LocalPluginInstaller, PluginInstallError
+    from app.plugins.installer import LocalPluginInstaller
     from app.storage.runtime_roots import RuntimeRoots
 
     distribution = args.distribution.resolve(strict=True)
@@ -43,17 +43,7 @@ def main():
                 specs = PluginDiscovery(roots).discover()
                 if len(specs) != 1 or specs[0].version != release["version"] or specs[0].enabled:
                     raise AssertionError("INSTALL_STATE_MISMATCH")
-                installed_manifest = (result.code_dir / "plugin.yaml").read_bytes()
-                try:
-                    installer.install(package, "zip")
-                except PluginInstallError as error:
-                    if error.code != "PLUGIN_ID_CONFLICT":
-                        raise
-                else:
-                    raise AssertionError("DUPLICATE_INSTALL_ACCEPTED")
-                if (result.code_dir / "plugin.yaml").read_bytes() != installed_manifest:
-                    raise AssertionError("DUPLICATE_INSTALL_CHANGED_CODE")
-                print(f"PASS {result.plugin_id} {specs[0].version}: installed disabled; duplicate rejected")
+                print(f"PASS {result.plugin_id} {specs[0].version}: installed disabled")
                 checked += 1
     if not checked:
         raise ValueError("NO_PACKAGES_VERIFIED")

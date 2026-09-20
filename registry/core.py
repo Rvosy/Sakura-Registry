@@ -15,8 +15,7 @@ from urllib.parse import urlsplit
 import yaml
 
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
-MAX_SOURCE_EXPANDED = 128 * 1024 * 1024
-MAX_SOURCE_ENTRIES = 4096
+# Match Sakura's installer limits for files that actually enter the package.
 MAX_PACKAGE_BYTES = 32 * 1024 * 1024
 MAX_FILE_BYTES = 16 * 1024 * 1024
 MAX_FILES = 512
@@ -25,7 +24,6 @@ ID = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,62}[A-Za-z0-9_-])?")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 REPOSITORY = re.compile(r"https://github\.com/([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9_.-]{1,100})")
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?")
-SERVICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,199}")
 PYTHON_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
 EXCLUDED = {".git", ".github", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".ds_store", "logs", "tmp", "temp"}
@@ -40,29 +38,8 @@ def require(condition: bool, code: str) -> None:
         raise RegistryError(code)
 
 
-def unique_object(pairs):
-    result = {}
-    for key, value in pairs:
-        require(isinstance(key, str) and key not in result, "DUPLICATE_OR_INVALID_KEY")
-        result[key] = value
-    return result
-
-
-class ManifestLoader(yaml.SafeLoader):
-    pass
-
-
-def yaml_mapping(loader, node):
-    return unique_object((loader.construct_object(k), loader.construct_object(v)) for k, v in node.value)
-
-
-ManifestLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, yaml_mapping)
-
-
 def read_json(path: Path) -> dict:
-    require(path.stat().st_size <= 4 * 1024 * 1024, "RECORD_TOO_LARGE")
-    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object,
-                      parse_constant=lambda _: (_ for _ in ()).throw(RegistryError("INVALID_JSON_NUMBER")))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -83,12 +60,12 @@ def safe_parts(name: str) -> tuple[str, ...]:
 
 def excluded(parts: tuple[str, ...]) -> bool:
     return any(p.casefold() in EXCLUDED or p.casefold() == ".env" or p.casefold().startswith(".env.")
-               or p.casefold().endswith((".pem", ".key", ".p12", ".pfx", ".pyc"))
+               or p.casefold().endswith(".pyc")
                or p.casefold() in {"id_rsa", "id_ed25519", ".npmrc", ".pypirc"} for p in parts)
 
 
 def version_match(value: str):
-    require(isinstance(value, str) and len(value) <= 128, "VERSION_INVALID")
+    require(isinstance(value, str), "VERSION_INVALID")
     match = VERSION.fullmatch(value)
     require(match is not None, "VERSION_INVALID")
     require(not match[4] or all(not p.isdigit() or p == "0" or not p.startswith("0")
@@ -103,18 +80,9 @@ def validate_manifest(manifest: dict) -> None:
     require(isinstance(manifest.get("id"), str) and ID.fullmatch(manifest["id"]) is not None, "ID_INVALID")
     safe_parts(manifest["id"])
     version_match(manifest.get("version"))
-    for key in ("entry", "name", "author", "description"):
-        require(key not in manifest or isinstance(manifest[key], str), "MANIFEST_INVALID")
-    for key in ("enabled", "required"):
-        require(key not in manifest or type(manifest[key]) is bool, "MANIFEST_INVALID")
     require(not manifest.get("required", False), "REQUIRED_PLUGIN_FORBIDDEN")
-    require("priority" not in manifest or type(manifest["priority"]) is int, "MANIFEST_INVALID")
-    for key in ("provides", "requires", "permissions"):
-        value = manifest.get(key, [])
-        require(isinstance(value, list) and all(isinstance(v, str) for v in value), "MANIFEST_INVALID")
-        if key != "permissions":
-            require(all(SERVICE.fullmatch(v) for v in value), "SERVICE_INVALID")
     entry = manifest.get("entry", "")
+    require(isinstance(entry, str), "ENTRY_INVALID")
     module, sep, cls = entry.partition(":")
     require(sep == ":" and all(PYTHON_NAME.fullmatch(p) for p in module.split("."))
             and PYTHON_NAME.fullmatch(cls) is not None, "ENTRY_INVALID")
@@ -128,10 +96,7 @@ def validate_manifest(manifest: dict) -> None:
 def parse_manifest(data: bytes) -> dict:
     require(len(data) <= MAX_MANIFEST_BYTES, "MANIFEST_TOO_LARGE")
     try:
-        text = data.decode("utf-8")
-        require(not any(isinstance(t, (yaml.tokens.AnchorToken, yaml.tokens.AliasToken)) for t in yaml.scan(text)),
-                "YAML_ALIAS_FORBIDDEN")
-        value = yaml.load(text, Loader=ManifestLoader)
+        value = yaml.safe_load(data.decode("utf-8"))
     except (yaml.YAMLError, UnicodeError, RecursionError) as error:
         raise RegistryError("MANIFEST_INVALID") from error
     validate_manifest(value)
@@ -183,25 +148,18 @@ def validate_history(current: dict, previous: dict) -> None:
         versions = {v["version"]: v for v in new["versions"]}
         for release in old["versions"]:
             candidate = versions.get(release["version"])
-            require(candidate is not None and all(candidate[k] == v for k, v in release.items()
-                    if k not in {"yanked", "yank_reason"}), "VERSION_HISTORY_REWRITTEN")
+            require(candidate is not None and all(candidate[k] == release[k]
+                    for k in ("commit", "manifest")), "VERSION_HISTORY_REWRITTEN")
 
 
 def source_url(repository: str, commit: str) -> str:
-    match = REPOSITORY.fullmatch(repository)
-    require(match is not None and COMMIT.fullmatch(commit) is not None, "SOURCE_INVALID")
-    return f"https://codeload.github.com/{match[1]}/{match[2]}/zip/{commit}"
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise RegistryError("SOURCE_REDIRECT_FORBIDDEN")
+    # Repository and commit have already been checked by validate_registry.
+    return f"https://codeload.github.com/{repository.removeprefix('https://github.com/')}/zip/{commit}"
 
 
 def download_source(repository: str, commit: str) -> bytes:
     request = urllib.request.Request(source_url(repository, commit), headers={"User-Agent": "Sakura-Registry/1"})
-    with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
-        require(response.status == 200, "SOURCE_HTTP_INVALID")
+    with urllib.request.urlopen(request, timeout=30) as response:
         data = response.read(MAX_SOURCE_BYTES + 1)
     require(len(data) <= MAX_SOURCE_BYTES, "SOURCE_TOO_LARGE")
     return data
@@ -209,39 +167,34 @@ def download_source(repository: str, commit: str) -> bytes:
 
 def package_source(data: bytes, repository: str, release: dict) -> bytes:
     require(len(data) <= MAX_SOURCE_BYTES, "SOURCE_TOO_LARGE")
-    repo = REPOSITORY.fullmatch(repository)
-    require(repo is not None and COMMIT.fullmatch(release["commit"]) is not None, "SOURCE_INVALID")
-    prefix = f"{repo[2]}-{release['commit']}"
+    prefix = f"{repository.rsplit('/', 1)[1]}-{release['commit']}"
     files = {}
-    paths = {}
+    paths = set()
     total = 0
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as source:
-            infos = source.infolist()
-            require(len(infos) <= MAX_SOURCE_ENTRIES, "SOURCE_TOO_MANY_ENTRIES")
-            require(sum(i.file_size for i in infos) <= MAX_SOURCE_EXPANDED, "SOURCE_TOO_LARGE")
-            for info in infos:
+            for info in source.infolist():
+                root, separator, relative = info.orig_filename.partition("/")
+                require(root == prefix, "SOURCE_ROOT_MISMATCH")
+                if info.is_dir() or (separator and excluded(tuple(relative.split("/")))):
+                    continue
                 # ZipInfo normalizes backslashes on Windows and truncates NUL.
                 # Validate the wire name before trusting its normalized filename.
                 require(info.orig_filename == info.filename, "PATH_INVALID")
-                parts = safe_parts(info.filename[:-1] if info.is_dir() else info.filename)
-                require(parts[0] == prefix, "SOURCE_ROOT_MISMATCH")
+                parts = safe_parts(relative)
                 mode = stat.S_IFMT(info.external_attr >> 16)
                 require(mode in {0, stat.S_IFREG, stat.S_IFDIR}, "SOURCE_SPECIAL_FILE")
                 require(not info.flag_bits & 1, "SOURCE_ENCRYPTED")
-                key = unicodedata.normalize("NFC", "/".join(parts)).casefold()
+                key = unicodedata.normalize("NFC", relative).casefold()
                 require(key not in paths, "SOURCE_PATH_COLLISION")
-                paths[key] = info.is_dir()
-                if info.is_dir() or excluded(parts[1:]):
-                    continue
-                require(len(parts) > 1, "SOURCE_ROOT_MISMATCH")
+                paths.add(key)
                 require(info.file_size <= MAX_FILE_BYTES, "FILE_TOO_LARGE")
                 total += info.file_size
                 require(total <= MAX_PACKAGE_BYTES and len(files) < MAX_FILES, "PACKAGE_TOO_LARGE")
-                files["/".join(parts[1:])] = source.read(info)
+                files["/".join(parts)] = source.read(info)
             for key in paths:
                 parts = key.split("/")
-                require(all(paths.get("/".join(parts[:i]), True) for i in range(1, len(parts))),
+                require(all("/".join(parts[:i]) not in paths for i in range(1, len(parts))),
                         "SOURCE_PATH_COLLISION")
     except (zipfile.BadZipFile, NotImplementedError, RuntimeError) as error:
         raise RegistryError("SOURCE_ZIP_INVALID") from error

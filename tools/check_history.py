@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from registry.core import read_json, unique_object, validate_history
+from registry.core import read_json, validate_history
 import json
 
 base = os.environ.get("REGISTRY_BASE", "")
@@ -16,5 +16,5 @@ else:
     if not re.fullmatch(r"[0-9a-f]{40}", base):
         raise ValueError("BASE_COMMIT_INVALID")
     previous = subprocess.run(["git", "show", f"{base}:plugins.json"], check=True, capture_output=True).stdout
-    validate_history(read_json(Path("plugins.json")), json.loads(previous, object_pairs_hook=unique_object))
+    validate_history(read_json(Path("plugins.json")), json.loads(previous))
     print("Version history preserved.")

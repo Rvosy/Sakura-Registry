@@ -19,15 +19,17 @@
 | `yanked` | 布尔值 |
 | `yank_reason` | 撤回时必填；未撤回时为空 |
 
-同一插件不能有重复版本，ID 和版本路径按大小写不敏感规则去重。历史记录只允许修改撤回状态及原因，插件仓库不可替换。正式收录以维护者合并 PR 为依据，记录中不设置提交者可以自行填写的 `approved: true`。
+同一插件不能有重复版本，ID 和版本路径按大小写不敏感规则去重。历史版本的 commit 和 manifest 保持不变，说明、撤回状态及原因可以修改。插件仓库地址仍用于构建历史版本，目前不可直接替换。正式收录以维护者合并 PR 为依据。
 
 ## Manifest 与包
 
-使用 `api: 4`、`id`、`version` 和 `entry: module:Class`。不接受旧字段 `plugin_id`、`api_version`、`optional` 或 `required: true`。入口模块 `.py` 必须存在，声明的 renderer/editor 文件必须存在。未知扩展字段保留给 Sakura 判断，Registry 不宣称已实现完整宿主兼容解析。
+Registry 检查打包所需的 `api: 4`、`id`、`version` 和 `entry: module:Class`，不接受旧字段 `plugin_id`、`api_version`、`optional` 或 `required: true`。入口模块 `.py` 必须存在，声明的 renderer/editor 文件必须存在。其他 manifest 字段随快照保留，完整字段校验和运行兼容性由 Sakura 负责。
 
-YAML 不允许重复键、anchor/alias、非 JSON 值；快照按实际字段比较。构建不导入插件，也不调用上游发布脚本。ZIP 根为插件 ID，保留原 manifest 字节。所有源码条目检查路径和文件类型，排除 Git 元数据、常见缓存、日志、环境配置和明显私钥文件；保留 `build`、`dist`、`vendor` 及许可证。
+JSON 使用标准解析器，YAML 与 Sakura 一样使用 `yaml.safe_load`，支持标准 anchor/alias；快照需能表示为 JSON，并按实际字段比较。构建不导入插件，也不调用上游发布脚本。ZIP 根为插件 ID，保留原 manifest 字节。
 
-限制：源码压缩包 64 MiB，源码声明展开尺寸 128 MiB，源码最多 4096 条目；安装内容最多 512 文件、合计 32 MiB，单文件 16 MiB，manifest 64 KiB。超出则失败，不截断。ZIP 不允许链接、设备、加密内容、Windows 保留名、重复路径或大小写及 Unicode 规范化碰撞。
+先排除 Git 元数据、常见缓存、日志、`.env`、`.npmrc`、`.pypirc` 和 `id_rsa` 等明确文件名，再对实际入包文件检查路径、文件类型和大小。保留 `build`、`dist`、`vendor`、许可证及证书等运行资源；不按 `.pem`、`.key` 等扩展名猜测内容。作者负责确认提交的文件不含凭据。
+
+下载源码压缩包上限为 64 MiB。安装内容沿用 Sakura 安装器的限制：最多 512 文件、合计 32 MiB，单文件 16 MiB，manifest 64 KiB。已排除文件不解压、不计入安装包限制。入包文件不允许链接、设备、加密内容、Windows 保留名、重复路径或大小写及 Unicode 规范化碰撞。
 
 ## Catalog
 

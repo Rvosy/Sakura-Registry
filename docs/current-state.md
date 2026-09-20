@@ -27,7 +27,7 @@
 
 单元测试覆盖打包保留与排除、禁止执行上游代码的构建路径、路径穿越、Unicode/大小写冲突、链接、嵌套 manifest、体积约束、快照匹配、版本历史保护和失败时不生成 Catalog。
 
-`tools/verify_install.py` 使用已有 `LocalPluginInstaller` 和 `PluginDiscovery`，每个包使用全新临时根，检查 ID、版本、未启用状态，以及重复安装被拒绝且 manifest 内容保留。脚本拒绝带 Python 依赖声明的包，避免将依赖构建执行混入首轮验收。
+`tools/verify_install.py` 使用已有 `LocalPluginInstaller` 和 `PluginDiscovery`，每个包使用全新临时根，检查 ID、版本、未启用状态。重复安装属于 Sakura 安装器已有测试的范围，不在 Registry 探针中重复验证。脚本拒绝带 Python 依赖声明的包，避免将依赖构建执行混入首轮验收。
 
 安装成功不代表 Spine 渲染、角色资源、宿主服务或所有平台运行正常。GitHub CI 执行 Windows/Linux 单元测试与线上固定源码构建；当前没有在 CI 安装完整 Sakura。真实 Windows 安装器的本地结果单独记录，不代替 CI 平台验证。
 
