@@ -1,6 +1,6 @@
 # Registry v1 契约
 
-状态：记录、构建和 GitHub 投稿流程已实现，客户端与 CDN 接入尚未完成。
+状态：记录、构建、GitHub 投稿和 GitHub Releases 分发已实现。CDN 未启用。
 
 ## 收录记录
 
@@ -39,12 +39,14 @@ JSON 使用标准解析器，YAML 与 Sakura 一样使用 `yaml.safe_load`，支
 
 构建必须使用全新输出目录，全部成功后才写入 `catalog/v1/catalog.json`。不会覆盖既有目录；失败目录不得发布。构建结果的顺序不代表推荐顺序，客户端不能直接取最后一个版本安装。
 
-未来上传流程必须先发布所有包，确认对象不存在或复用原始已发布对象，再切换 Catalog。路径包含 commit 不代表存储服务已经禁止覆盖；本阶段只实现本地输出防覆盖。
+GitHub 分发由 `publish.yml` 执行：构建任务只读，发布任务将完整产物上传到新的草稿 Release，上传全部成功后才公开并设为 latest。Tag 包含收录提交和运行编号，不覆盖已有 Release。每个 ZIP 改用 `<id>_<version>_<commit>.zip` 作为附件名；发布的 Catalog 中 `package.path` 和 `package.url` 对应这个附件，ZIP 内容保持不变。
+
+目录入口为 `https://github.com/Rvosy/Sakura-Registry/releases/latest/download/catalog.json`。无需 VPS、多吉云或 R2；以后更换分发站时使用 Catalog 中的 HTTPS 地址即可。
 
 ## 客户端接入约束
 
 客户端应校验 schema、大小限制、HTTPS 下载地址、ZIP 结构及解包后的 ID/版本，并交给现有安装器。不能回退到作者 Release ZIP 或其他源码包。静态文本必须以文本渲染，不能把远端说明当作可信 HTML。
 
-推荐版本应排除撤回和预发布，按 SemVer 选择满足 Plugin API、宿主能力、平台、Python 与依赖要求的最高版本。当前 manifest 没有完整的这些约束，不能凭 `api: 4` 就声称完全兼容；客户端算法在后续 Spec 中落实，本工具不生成 `recommendedVersion`。
+推荐版本应排除撤回和预发布，按 SemVer 选择满足 Plugin API、宿主能力、平台、Python 与依赖要求的最高版本。当前 manifest 没有完整的这些约束，不能凭 `api: 4` 就声称完全兼容；当前客户端根据 API 和实际可用的服务做初步筛选，不能据此保证所有系统和 Python 依赖均可运行。本工具不生成 `recommendedVersion`。
 
-安装来源记录计划为 `registry_url`、`plugin_id`、`version`、`repository`、`commit`、`package_url`、`pinned`。这是后续安装事务需要持久化的接口，本阶段未修改 Sakura 安装器，也没有写入真实用户配置。固定版本和更新语义随更新事务一起实施。
+安装来源记录计划为 `registry_url`、`plugin_id`、`version`、`repository`、`commit`、`package_url`、`pinned`。完整来源持久化和固定版本更新策略尚未实现。当前客户端仅更新已经停用的用户插件，保留设置和数据，失败时恢复旧版本。

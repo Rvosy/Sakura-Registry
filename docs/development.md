@@ -85,3 +85,11 @@ python tools/verify_install.py --sakura-root ../sakura --distribution dist/sampl
 使用标准 JSON 和 `yaml.safe_load`，不另造解析规则。不按扩展名猜测资源是否敏感，不增加自定义摘要、自动重试或自愈流程。保留固定源码引用和安装路径安全；补充说明留在投稿 Issue，索引仅保存来源、版本引用和必要的撤回记录。
 
 字段定义见 [Registry v1](registry-v1.md)，Sakura 侧的已有能力见 [现状与差异](current-state.md)。
+
+## GitHub 分发
+
+`publish.yml` 在 main 的 `plugins.json` 改变时运行，也支持手动启动。首次建立目录入口时可手动运行一次；空索引会发布空目录，不会收录 `examples/` 中的插件。
+
+读权限任务测试并构建已收录插件，写权限任务使用 `tools/release_assets.py` 转成 GitHub 附件布局，再创建草稿 Release、上传全部 ZIP 和 Catalog，最后公开并设为最新。每次发布使用独立 Tag，失败后保留日志和草稿，查明原因后处理，不自动重试到成功。
+
+客户端读取 latest Release 的 `catalog.json`，安装包链接固定到生成它的具体 Release。当前采用 GitHub 镜像回退，不上传到 CDN。

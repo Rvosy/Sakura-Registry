@@ -1,0 +1,68 @@
+name: Publish GitHub catalog
+
+on:
+  push:
+    branches: [main]
+    paths: [plugins.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-catalog
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - name: Check history
+        env:
+          REGISTRY_BASE: ${{ github.event.before }}
+        run: python tools/check_history.py
+      - run: python -m registry build --output dist/registry --base-url https://example.invalid
+      - uses: actions/upload-artifact@v4
+        with:
+          name: github-distribution
+          path: dist/registry/
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: github-distribution
+          path: dist/registry
+      - name: Prepare assets
+        env:
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/download/catalog-${{ github.sha }}-${{ github.run_id }}
+        run: python tools/release_assets.py --distribution dist/registry --output dist/assets --base-url "$RELEASE_URL"
+      - name: Publish completed catalog and packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: catalog-${{ github.sha }}-${{ github.run_id }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" --draft --title "插件目录" --notes "从已收录的固定源码构建。"
+          gh release upload "$RELEASE_TAG" dist/assets/*
+          gh release edit "$RELEASE_TAG" --draft=false --latest
