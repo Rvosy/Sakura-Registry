@@ -1,4 +1,12 @@
 {
   "schema_version": 1,
-  "plugins": []
+  "plugins": [
+    {
+      "id": "sakura.visual.spine",
+      "repository": "https://github.com/Rvosy/Sakura-Spine",
+      "versions": {
+        "0.2.6": "6f17c62310c5a7fdd60c7aab82391572db2d9031"
+      }
+    }
+  ]
 }
