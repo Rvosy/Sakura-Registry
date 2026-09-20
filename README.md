@@ -2,7 +2,7 @@
 
 [Sakura](https://github.com/Rvosy/Sakura) 的社区插件目录。插件作者在自己的 GitHub 仓库维护源码，通过这里提交收录和版本更新；Registry 从收录的源码版本构建安装包，供 Sakura 插件市场分发。
 
-通过 GitHub Issue 投稿，维护者确认后收录。客户端在线安装与 CDN 分发仍在开发中，收录后暂不会直接出现在应用内市场。
+通过 GitHub Issue 投稿，自动校验后由维护者审批收录。客户端在线安装与 CDN 分发仍在开发中，收录后暂不会直接出现在应用内市场。
 
 ## 开发插件
 
@@ -14,9 +14,9 @@
 
 1. 将插件源码推送到公开 GitHub 仓库。
 2. 打开 [插件投稿表单](https://github.com/Rvosy/Sakura-Registry/issues/new?template=submit-plugin.yml)，填写插件 ID 和仓库地址；需要指定版本时附上 Release、Tag 或 commit。
-3. 提交 Issue，维护者会在其中反馈问题并确认收录版本。
+3. 提交 Issue，等待自动检查结果。维护者批准后，机器人生成收录 PR，合并后完成收录。
 
-作者无需 Fork 本仓库或填写 Registry JSON。维护者负责解析版本、生成 manifest 快照并更新目录，现有 CI 检查记录和构建安装包。投稿细节见 [投稿指南](CONTRIBUTING.md)。
+作者无需 Fork 本仓库或填写 Registry JSON。机器人解析版本、固定 commit、生成 manifest 快照并试打包；检查失败时会在 Issue 中反馈原因。投稿细节见 [投稿指南](CONTRIBUTING.md)。
 
 插件源码继续保留在作者仓库，无需把源码或 ZIP 提交到这里。构建时会保留已提交的运行资源；需要编译前端资源的插件，应将编译结果一起提交。
 
@@ -24,7 +24,7 @@
 
 发布新版后，再通过 [投稿表单](https://github.com/Rvosy/Sakura-Registry/issues/new?template=submit-plugin.yml) 提交版本信息。每个版本分别确认，已有版本的源码保持不变。
 
-需要更正资料或撤回版本时，提交 [收录变更 Issue](https://github.com/Rvosy/Sakura-Registry/issues/new?template=change-plugin.yml)，说明版本和原因。撤回后保留历史记录，不再为该版本提供安装包。
+撤回或恢复版本时，提交 [版本变更 Issue](https://github.com/Rvosy/Sakura-Registry/issues/new?template=change-plugin.yml)，填写版本和原因，同样经过检查与审批。资料更正或仓库迁移请开普通 Issue 说明。撤回后保留历史记录，不再为该版本提供安装包。
 
 ## 参与维护
 

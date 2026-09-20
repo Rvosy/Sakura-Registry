@@ -17,11 +17,15 @@ Registry 不运行插件仓库的构建脚本。需要编译的前端资源应�
 - 插件 ID：与 `plugin.yaml` 的 `id` 一致。
 - GitHub 仓库：插件源码的公开仓库地址。
 
-如果希望收录某个版本，可补充 Release、Tag 或 commit；留空时由维护者在 Issue 中与你确认。插件用途、特殊依赖和验证环境也可以写在补充说明里。
+如果希望收录某个版本，可补充 Release 链接、Tag 或 commit；留空时取最新正式 Release，没有 Release 则取默认分支。机器人会把解析出的版本和完整 commit 回贴到 Issue。插件用途、特殊依赖和验证环境也可以写在补充说明里。
 
-提交后，维护者在 Issue 中检查和反馈，确定版本后更新 Registry。你只需按反馈修改自己的插件仓库，无需 Fork Registry、填写 manifest 快照或提交 PR。
+提交后，Actions 自动读取 manifest、核对 ID 并试打包，检查结果和预览包链接会回贴到 Issue。检查失败时按提示修正；编辑 Issue 会重新检查，插件仓库有改动时也可以评论 `/recheck`。
 
-目前 Issue 由维护者手动处理，已有 CI 负责收录记录的校验和打包。自动处理投稿仍待接入；客户端在线安装与 CDN 分发也尚未开放。
+维护者查看固定源码与检查结果后，评论 `/approve 检查编号`。机器人生成收录 PR 并启动校验，维护者合并后完成收录、关闭原 Issue。你无需 Fork Registry、填写 manifest 快照或提交 PR。
+
+审批对应某次检查的固定结果。编辑 Issue 后需要重新检查；上游后续提交不会悄悄替换已检查的源码。检查产物保留 30 天，过期后评论 `/recheck` 即可。
+
+收录合并后会构建 Catalog 和安装包，可在 Actions 的 `registry-preview` 产物中查看。客户端在线安装与 CDN 分发尚未开放。
 
 ## 发布新版
 
@@ -31,7 +35,9 @@ Registry 不运行插件仓库的构建脚本。需要编译的前端资源应�
 
 ## 修改或撤回
 
-通过 [收录变更表单](https://github.com/Rvosy/Sakura-Registry/issues/new?template=change-plugin.yml) 提交资料更正、仓库迁移、版本撤回或恢复请求。涉及具体版本时，请写明版本号和原因。
+通过 [版本变更表单](https://github.com/Rvosy/Sakura-Registry/issues/new?template=change-plugin.yml) 提交版本撤回或恢复请求，填写插件 ID、版本号和原因。撤回无需下载上游源码；恢复会重新检查原来固定的源码。维护者批准后生成变更 PR。
+
+资料更正、仓库迁移等其他变更，请开普通 Issue 说明，由维护者处理。
 
 撤回会保留历史记录，后续目录不再为该版本提供安装包。
 

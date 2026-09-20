@@ -16,11 +16,23 @@ python -m registry validate
 
 ## 处理投稿 Issue
 
-作者通过 Issue 提交插件 ID 和仓库地址。当前由维护者在 Issue 中确认具体版本，将 Release 或 Tag 解析为完整 commit，读取该提交的整份 `plugin.yaml`，再参考 [Spine 记录](../examples/spine.json) 更新 `plugins.json`。
+作者打开、编辑或重新打开投稿 Issue 时，`submission.yml` 自动解析版本并试打包，回贴结果和预览包。留空版本先取最新正式 Release，没有 Release 则使用默认分支；实际收录记录始终固定完整 commit。
 
-新增插件添加条目，新版追加到 `versions`，撤回则修改对应版本的 `yanked` 和 `yank_reason`。维护者通过 PR 审阅记录并运行现有 CI，在描述中关联投稿 Issue；合并后回到 Issue 反馈结果。作者不需要编辑 Registry 文件。
+| Issue 评论 | 操作 |
+|---|---|
+| `/recheck` | 作者或维护者重新检查当前投稿 |
+| `/approve 检查编号` | 维护者批准该次检查，生成收录 PR；检查编号由机器人给出 |
+| `/reject 原因` | 维护者关闭投稿及其尚未合并的自动收录 PR |
 
-Issue 自动校验、生成收录 PR 和 `/approve` 等评论命令尚未实现。现有 Actions 在 Registry 提交或 PR 上校验、构建，不会因作者提交 Issue 自动运行。
+审批权限使用 GitHub 仓库实际的 write/maintain/admin 权限。审批读取该次成功检查的 artifact，不重新解析会移动的 Tag；Issue 内容已经变化时要求重新检查。每个检查编号对应独立分支，重复审批返回同一个未关闭 PR，不覆盖维护者修改。
+
+生成的 PR 只修改 `plugins.json`，由维护者查看差异与 CI 后合并；不会自动合并。GitHub 的 `GITHUB_TOKEN` 创建 PR 不会触发普通 `pull_request` 事件，因此机器人显式 dispatch `validate.yml`，同时传入基线 commit 检查历史。合并后沿用 main 分支的构建流程，并通过 `Closes #编号` 关闭投稿。
+
+新版本追加到 `versions`；撤回和恢复通过版本变更表单，沿用检查、审批、PR 流程。资料更正和仓库迁移由维护者手动处理。相互冲突的收录 PR 按普通 Git 冲突处理，不增加自动重试或重写分支机制。
+
+仓库需开启 Actions 的 “Allow GitHub Actions to create and approve pull requests”。默认 token 权限仍保持 read；源码处理任务只有只读权限，回贴结果和创建 PR 的任务分别申请需要的写权限。无需 PAT、App 私钥或服务器。
+
+代码落点：`registry/submissions.py` 处理 GitHub 数据和候选记录，`tools/submission.py` 是工作流入口。检查 artifact 保留 30 天，过期直接重新检查。基础设施故障保留失败日志，查明原因后再手动恢复，不自动重试测试到成功。
 
 ## 构建目录
 

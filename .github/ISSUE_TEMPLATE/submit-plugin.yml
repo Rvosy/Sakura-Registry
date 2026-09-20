@@ -1,5 +1,5 @@
 name: 插件投稿或新版
-description: 提交插件仓库，由维护者确认版本并收录。
+description: 自动校验插件，维护者批准后生成收录 PR。
 title: "[插件投稿] "
 body:
   - type: input
@@ -20,7 +20,7 @@ body:
     id: version
     attributes:
       label: 要收录的版本
-      description: 可填 Release、Tag 或 commit；留空时由维护者与你确认。
+      description: 可填 Release 链接、Tag 或 commit；留空取最新正式 Release，没有 Release 则取默认分支。
       placeholder: v1.0.0
   - type: textarea
     id: notes

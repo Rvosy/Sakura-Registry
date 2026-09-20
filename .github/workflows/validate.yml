@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Base commit for a generated submission PR
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,7 +36,7 @@ jobs:
       - run: python -m registry validate --registry examples/spine.json
       - name: Reject rewritten history
         env:
-          REGISTRY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          REGISTRY_BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base_sha }}
         run: python tools/check_history.py
 
   sample:
