@@ -21,11 +21,11 @@
 
 目录计划直接通过下载域名静态分发。没有新增 FastAPI、数据库、账号、投稿凭据或云厂商 SDK。首轮只构建预览，`example.invalid` 不是真实服务地址。
 
-作者通过 Issue 表单投稿，Actions 自动解析版本、生成 manifest 快照、试打包并回贴结果。维护者批准具体检查后生成收录 PR，也支持重新检查、拒绝、新版本、撤回和恢复。生产 `plugins.json` 仍需通过 PR 审核合并；样板独立放在 `examples/`。
+作者通过 Issue 表单投稿，Actions 自动解析版本、固定 commit、试打包并回贴结果。维护者批准具体检查后生成收录 PR，也支持重新检查、拒绝、新版本、撤回和恢复。生产 `plugins.json` 仍需通过 PR 审核合并；样板独立放在 `examples/`。
 
 ## 验证范围
 
-单元测试覆盖打包保留与排除、禁止执行上游代码的构建路径、路径穿越、Unicode/大小写冲突、链接、嵌套 manifest、体积约束、快照匹配、版本历史保护和失败时不生成 Catalog。
+单元测试覆盖打包保留与排除、禁止执行上游代码的构建路径、路径穿越、Unicode/大小写冲突、链接、嵌套 manifest、体积约束、源码 ID 与版本匹配、版本历史保护和失败时不生成 Catalog。
 
 `tools/verify_install.py` 使用已有 `LocalPluginInstaller` 和 `PluginDiscovery`，每个包使用全新临时根，检查 ID、版本、未启用状态。重复安装属于 Sakura 安装器已有测试的范围，不在 Registry 探针中重复验证。脚本拒绝带 Python 依赖声明的包，避免将依赖构建执行混入首轮验收。
 
@@ -36,3 +36,17 @@
 开发过程中，路径回归测试首次暴露 Windows `ZipInfo` 会将反斜杠转换成斜杠的问题。打包器已增加 `orig_filename` 与规范化文件名的检查，回归用例保留原始 ZIP 文件名；修复后通过。测试入口首次使用 bundled Runtime 时缺少新仓库搜索路径，已通过显式加入当前目录解决，未修改 Runtime 配置。
 
 尚未实现多吉云上传、生产不可覆盖对象、客户端缓存下载、来源持久化、兼容解析、更新回滚或角色 Hub。
+
+## GitHub 投稿流程验收
+
+2026-09-20 使用 [投稿 Issue #1](https://github.com/Rvosy/Sakura-Registry/issues/1) 验证自动检查、回贴、维护者审批与 `/recheck`。[自动生成的 PR #2](https://github.com/Rvosy/Sakura-Registry/pull/2) 只修改 `plugins.json`，保持未合并。其自动分支校验 [35500815024](https://github.com/Rvosy/Sakura-Registry/actions/runs/35500815024) 通过；下载该次 CI 的正式目录产物后，Windows Sakura 安装器验证 Spine 0.2.6 安装成功且未启用。
+
+普通 PR 工作流 [35500815902](https://github.com/Rvosy/Sakura-Registry/actions/runs/35500815902) 首次状态为 `action_required`，提交为 `4245dd2ded898b3968a066870986f534776e2437`，attempt 1，job 数为 0。原因已由 GitHub 官方触发规则确认：`GITHUB_TOKEN` 创建的 PR 要求维护者批准工作流。批准执行一次后，Windows/Linux 校验及样板构建通过；不是测试失败后重跑。本仓库保留平台审批，自动分支校验通过 workflow_dispatch 独立运行。
+
+撤回、恢复、权限限制、过期检查、Issue 编辑后拒绝旧审批、重复审批和拒绝投稿关闭相关 PR 均有本地回归覆盖。本次未实际合并收录 PR，也未启用 CDN；合并后的自动关闭由 GitHub 的 `Closes` 关联处理，main 构建沿用已有工作流。
+
+## 索引精简
+
+索引现在仅保存 ID、仓库、版本到 commit 的映射，撤回时才添加原因。完整 manifest 由构建时读取源码生成，不再重复存入索引。当前正式索引尚无已合并插件，无需迁移已发布数据；格式调整前的检查产物请通过 `/recheck` 重新生成。
+
+精简后本地 29 项测试通过；从相同固定源码构建 Spine 0.2.6 后，真实 Windows 安装器验证安装成功且未启用。

@@ -21,8 +21,7 @@ MANIFEST = {"api": 4, "id": "notes", "version": "1.0.0", "entry": "plugin:Plugin
 
 def records():
     return {"schema_version": 1, "plugins": [{"id": "notes", "repository": "https://github.com/example/notes",
-            "versions": [{"version": "1.0.0", "commit": COMMIT, "manifest": copy.deepcopy(MANIFEST),
-                          "notes": "Initial release", "yanked": False, "yank_reason": ""}]}]}
+            "versions": {"1.0.0": COMMIT}}]}
 
 
 def archive(extra=(), manifest=None):
@@ -45,8 +44,8 @@ def archive(extra=(), manifest=None):
 
 
 class RegistryTests(unittest.TestCase):
-    def package(self, source, release=None):
-        return package_source(source, "https://github.com/example/notes", release or records()["plugins"][0]["versions"][0])
+    def package(self, source):
+        return package_source(source, "https://github.com/example/notes", COMMIT)[0]
 
     def test_package_preserves_resources_but_removes_local_config(self):
         data = archive([("LICENSE", "license"), ("vendor/runtime.js", "runtime"), ("dist/ui.js", "built UI"),
@@ -86,20 +85,24 @@ class RegistryTests(unittest.TestCase):
         data = archive([(info, "../../secret"), ("logs/CON.log", "log")])
         self.assertEqual(self.package(data), self.package(archive()))
 
-    def test_nested_manifest_and_snapshot_change_fail(self):
+    def test_nested_manifest_is_rejected(self):
         with self.assertRaisesRegex(RegistryError, "NESTED_MANIFEST"):
             self.package(archive([("another/plugin.yaml", "{}")]))
-        changed = {**MANIFEST, "requires": ["unreviewed.service"]}
-        with self.assertRaisesRegex(RegistryError, "SNAPSHOT_MISMATCH"):
-            self.package(archive(manifest=changed))
+
+    def test_catalog_identity_must_match_fixed_source(self):
+        for manifest in ({**MANIFEST, "id": "other"}, {**MANIFEST, "version": "2.0.0"}):
+            with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                with self.assertRaisesRegex(RegistryError, "IDENTITY_MISMATCH"):
+                    build_catalog(records(), output, "https://downloads.example.test",
+                                  lambda *_: archive(manifest=manifest))
+                self.assertFalse((output / "catalog/v1/catalog.json").exists())
 
     def test_entry_and_visual_assets_must_be_in_package(self):
         for manifest, error in (({**MANIFEST, "entry": "missing:Plugin"}, "ENTRY_MISSING"),
                                 ({**MANIFEST, "visuals": [{"renderer": ".env"}]}, "VISUAL_ASSET_MISSING")):
-            release = records()["plugins"][0]["versions"][0]
-            release["manifest"] = manifest
             with self.subTest(error=error), self.assertRaisesRegex(RegistryError, error):
-                self.package(archive(manifest=manifest), release)
+                self.package(archive(manifest=manifest))
 
     def test_file_count_and_size_limits_are_enforced(self):
         for limit, value, code in (("MAX_SOURCE_BYTES", 10, "SOURCE_TOO_LARGE"),
@@ -118,24 +121,27 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(RegistryError, "MANIFEST_NOT_JSON"):
             parse_manifest((json.dumps(MANIFEST)[:-1] + ', "x": .nan}').encode())
 
-    def test_registry_rejects_unpinned_or_mismatched_records(self):
-        for field, value in (("commit", "main"), ("commit", "a" * 7), ("version", "../1.0.0"),
-                             ("version", "1.0.0-01"), ("version", "2.0.0"), ("yanked", "false")):
+    def test_registry_rejects_invalid_versions_commits_and_yanks(self):
+        for versions in ({"1.0.0": "main"}, {"1.0.0": "a" * 7}, {"../1.0.0": COMMIT},
+                         {"1.0.0-01": COMMIT}, {"1.0.0-A": COMMIT, "1.0.0-a": COMMIT}):
             current = records()
-            current["plugins"][0]["versions"][0][field] = value
-            with self.subTest(field=field, value=value), self.assertRaises(RegistryError):
+            current["plugins"][0]["versions"] = versions
+            with self.subTest(versions=versions), self.assertRaises(RegistryError):
+                validate_registry(current)
+        for yanked in ({"1.0.0": ""}, {"1.0.0": False}, {"2.0.0": "Broken"}):
+            current = records()
+            current["plugins"][0]["yanked"] = yanked
+            with self.subTest(yanked=yanked), self.assertRaisesRegex(RegistryError, "YANK_REASON_INVALID"):
                 validate_registry(current)
 
     def test_history_can_yank_but_cannot_rewrite_or_delete(self):
         previous = records()
         current = copy.deepcopy(previous)
-        current["plugins"][0]["versions"][0].update(yanked=True, yank_reason="Broken settings")
-        validate_history(current, previous)
-        current["plugins"][0]["versions"][0]["notes"] = "Corrected release notes"
+        current["plugins"][0]["yanked"] = {"1.0.0": "Broken settings"}
         validate_history(current, previous)
         for mutate in (
-            lambda c: c["plugins"][0]["versions"][0].update(commit="b" * 40),
-            lambda c: c["plugins"][0]["versions"][0]["manifest"].update(requires=["new.service"]),
+            lambda c: c["plugins"][0]["versions"].update({"1.0.0": "b" * 40}),
+            lambda c: c["plugins"][0].update(versions={"2.0.0": COMMIT}),
             lambda c: c["plugins"][0].update(repository="https://github.com/other/notes"),
             lambda c: c.update(plugins=[]),
         ):
@@ -173,13 +179,15 @@ class RegistryTests(unittest.TestCase):
 
     def test_yanked_versions_preserve_history_without_download(self):
         current = records()
-        current["plugins"][0]["versions"][0].update(yanked=True, yank_reason="Broken")
+        current["plugins"][0]["yanked"] = {"1.0.0": "Broken"}
         with tempfile.TemporaryDirectory() as tmp:
             catalog = build_catalog(current, Path(tmp) / "out", "https://downloads.example.test",
                                     lambda *_: self.fail("must not download yanked source"))
             item = catalog["plugins"][0]["versions"][0]
             self.assertIsNone(item["package"])
-            self.assertEqual(item["manifest"], MANIFEST)
+            self.assertIsNone(item["manifest"])
+            self.assertEqual(item["commit"], COMMIT)
+            self.assertEqual(item["yank_reason"], "Broken")
 
     def test_invalid_download_base_is_rejected_before_writing(self):
         with tempfile.TemporaryDirectory() as tmp:

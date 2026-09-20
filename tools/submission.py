@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from registry.core import RegistryError, write_json
 from registry.submissions import (
     GitHub, GitHubError, approved_candidate, create_pull_request, prepare_candidate,
-    read_registry, require_maintainer,
+    open_submission_pulls, read_registry, require_maintainer,
 )
 
 
@@ -39,10 +39,10 @@ def main():
             if package is not None:
                 (output / "plugin.zip").write_bytes(package)
             plugin = candidate["plugin"]
-            release = plugin["versions"][0]
+            version, commit = next(iter(plugin["versions"].items()))
             run_id = os.environ["GITHUB_RUN_ID"]
-            body = (f"检查通过：`{plugin['id']}` / `{release['version']}`。\n\n"
-                    f"固定源码：{plugin['repository']}/tree/{release['commit']}\n\n"
+            body = (f"检查通过：`{plugin['id']}` / `{version}`。\n\n"
+                    f"固定源码：{plugin['repository']}/tree/{commit}\n\n"
                     f"[检查与预览包](https://github.com/{repository}/actions/runs/{run_id})\n\n"
                     f"维护者确认后评论 `/approve {run_id}`，生成收录 PR。")
             write_json(output / "result.json", {"body": body})
@@ -54,19 +54,16 @@ def main():
                 run_id = approval[1]
                 candidate = approved_candidate(api, repository, run_id, issue)
                 pull, branch = create_pull_request(api, repository, candidate, run_id)
-                # GITHUB_TOKEN-created PRs do not trigger pull_request workflows.
-                # workflow_dispatch does run, so explicitly validate the generated branch.
+                # GitHub gates GITHUB_TOKEN-created PR workflows on approval.
+                # workflow_dispatch runs immediately, so validate this branch explicitly.
                 api.request("POST", f"repos/{repository}/actions/workflows/validate.yml/dispatches",
                             {"ref": branch, "inputs": {"base_sha": pull["base"]["sha"]}})
                 api.request("POST", endpoint + "/comments", {"body": f"已生成收录 PR：{pull['html_url']}\n\n校验通过后由维护者合并。"})
                 print(pull["html_url"])
             elif command == "/reject" or command.startswith("/reject "):
                 reason = command.removeprefix("/reject").strip() or "本次投稿未收录。"
-                pulls = api.request("GET", f"repos/{repository}/pulls?state=open&per_page=100")
-                for pull in pulls:
-                    if (pull["head"]["repo"]["full_name"] == repository
-                            and pull["head"]["ref"].startswith(f"registry/issue-{number}-run-")):
-                        api.request("PATCH", f"repos/{repository}/pulls/{pull['number']}", {"state": "closed"})
+                for pull in open_submission_pulls(api, repository, number):
+                    api.request("PATCH", f"repos/{repository}/pulls/{pull['number']}", {"state": "closed"})
                 api.request("POST", endpoint + "/comments", {"body": reason})
                 api.request("PATCH", endpoint, {"state": "closed", "state_reason": "not_planned"})
             else:

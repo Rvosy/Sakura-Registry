@@ -2,14 +2,19 @@ import base64
 import copy
 import io
 import json
+import os
+from pathlib import Path
+import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 from registry.core import RegistryError
 from registry.submissions import (
     apply_candidate, approved_candidate, create_pull_request, prepare_candidate, require_maintainer,
 )
-from test_registry import COMMIT, MANIFEST, archive, records
+from test_registry import COMMIT, archive, records
+from tools import submission
 
 
 REPO = "example/registry"
@@ -36,12 +41,9 @@ class FakeGitHub:
 
 
 def source_api():
-    manifest = json.dumps(MANIFEST).encode()
     return FakeGitHub({
         ("GET", "repos/example/notes/commits/v1.0.0"): {"sha": COMMIT},
         ("GET", "repos/example/notes/releases/latest"): {"tag_name": "v1.0.0"},
-        ("GET", f"repos/example/notes/contents/plugin.yaml?ref={COMMIT}"): {
-            "type": "file", "size": len(manifest), "content": base64.b64encode(manifest).decode()},
     })
 
 
@@ -56,8 +58,7 @@ class SubmissionTests(unittest.TestCase):
             calls.append((repo, commit))
             return archive()
         result, package = prepare_candidate(issue(), empty(), source_api(), fetch)
-        self.assertEqual(result["plugin"]["versions"][0]["commit"], COMMIT)
-        self.assertEqual(result["plugin"]["versions"][0]["notes"], "")
+        self.assertEqual(result["plugin"], records()["plugins"][0])
         self.assertEqual(calls, [("https://github.com/example/notes", COMMIT)])
         with zipfile.ZipFile(io.BytesIO(package)) as built:
             self.assertIn("notes/plugin.py", built.namelist())
@@ -80,7 +81,7 @@ class SubmissionTests(unittest.TestCase):
     def test_submission_id_must_match_source(self):
         with self.assertRaisesRegex(RegistryError, "IDENTITY_MISMATCH"):
             prepare_candidate(issue(BODY.replace("\n\nnotes\n", "\n\nother\n")), empty(), source_api(),
-                              lambda *_: self.fail("must fail before source download"))
+                              lambda *_: archive())
 
     def test_issue_text_is_not_an_arbitrary_download_address(self):
         for repo in ("http://127.0.0.1/internal", "https://github.com/example/notes; echo secret"):
@@ -90,10 +91,9 @@ class SubmissionTests(unittest.TestCase):
 
     def test_new_version_keeps_existing_records_and_rejects_duplicates(self):
         proposal = candidate()
-        proposal["plugin"]["versions"][0].update(version="1.1.0", commit="b" * 40)
-        proposal["plugin"]["versions"][0]["manifest"]["version"] = "1.1.0"
+        proposal["plugin"]["versions"] = {"1.1.0": "b" * 40}
         result = apply_candidate(records(), proposal)
-        self.assertEqual(result["plugins"][0]["versions"][0], records()["plugins"][0]["versions"][0])
+        self.assertEqual(result["plugins"][0]["versions"]["1.0.0"], COMMIT)
         self.assertEqual(len(result["plugins"][0]["versions"]), 2)
         with self.assertRaisesRegex(RegistryError, "VERSION_ALREADY_LISTED"):
             apply_candidate(records(), candidate())
@@ -104,14 +104,14 @@ class SubmissionTests(unittest.TestCase):
                                               lambda *_: self.fail("yank must not download"))
         self.assertIsNone(package)
         yanked = apply_candidate(records(), proposal)
-        self.assertTrue(yanked["plugins"][0]["versions"][0]["yanked"])
+        self.assertEqual(yanked["plugins"][0]["yanked"], {"1.0.0": "Broken"})
         calls = []
         def fetch(repo, commit):
             calls.append(commit)
             return archive()
         restored, package = prepare_candidate(issue(body.replace("撤回版本", "恢复版本")), yanked, FakeGitHub({}), fetch)
         self.assertEqual(calls, [COMMIT])
-        self.assertFalse(apply_candidate(yanked, restored)["plugins"][0]["versions"][0]["yanked"])
+        self.assertEqual(apply_candidate(yanked, restored), records())
 
     def test_only_actual_repository_writers_can_approve(self):
         for permission in ("read", "triage", "none"):
@@ -157,6 +157,7 @@ class SubmissionTests(unittest.TestCase):
         branch = "registry/issue-7-run-123"
         routes = {
             ("GET", f"repos/{REPO}/pulls?state=all&head=example%3Aregistry%2Fissue-7-run-123"): [],
+            ("GET", f"repos/{REPO}/pulls?state=open&per_page=100"): [],
             ("GET", f"repos/{REPO}"): {"default_branch": "main"},
             ("GET", f"repos/{REPO}/git/ref/heads/main"): {"object": {"sha": "base"}},
             ("GET", f"repos/{REPO}/contents/plugins.json?ref=base"): {"content": base64.b64encode(json.dumps(empty()).encode()).decode()},
@@ -179,6 +180,38 @@ class SubmissionTests(unittest.TestCase):
         again = FakeGitHub(routes)
         self.assertEqual(create_pull_request(again, REPO, candidate(), "123")[0], pull)
         self.assertEqual(len(again.calls), 1)
+        routes[("GET", f"repos/{REPO}/pulls?state=all&head=example%3Aregistry%2Fissue-7-run-123")] = []
+        routes[("GET", f"repos/{REPO}/pulls?state=open&per_page=100")] = [
+            {"html_url": "https://github.com/example/registry/pull/10",
+             "head": {"repo": {"full_name": REPO}, "ref": "registry/issue-7-run-122"}}]
+        conflict = FakeGitHub(routes)
+        with self.assertRaisesRegex(RegistryError, "已有收录 PR"):
+            create_pull_request(conflict, REPO, candidate(), "123")
+        self.assertTrue(all(method == "GET" for method, _, _ in conflict.calls))
+
+    def test_reject_closes_only_this_issues_generated_pr(self):
+        endpoint = f"repos/{REPO}/issues/7"
+        api = FakeGitHub({
+            ("GET", endpoint): issue(),
+            ("GET", f"repos/{REPO}/collaborators/owner/permission"): {"permission": "admin"},
+            ("GET", f"repos/{REPO}/pulls?state=open&per_page=100"): [
+                {"number": 8, "head": {"repo": {"full_name": REPO}, "ref": "registry/issue-7-run-123"}},
+                {"number": 9, "head": {"repo": {"full_name": REPO}, "ref": "registry/issue-70-run-124"}},
+            ],
+            ("PATCH", f"repos/{REPO}/pulls/8"): {},
+            ("POST", endpoint + "/comments"): {},
+            ("PATCH", endpoint): {},
+        })
+        event = {"issue": issue(), "sender": {"login": "owner"}, "comment": {"body": "/reject Needs fixes"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "event.json"
+            path.write_text(json.dumps(event), encoding="utf-8")
+            with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPO, "GITHUB_EVENT_PATH": str(path)}), \
+                    patch("sys.argv", ["submission.py", "moderate"]), patch.object(submission, "GitHub", return_value=api):
+                self.assertEqual(submission.main(), 0)
+        changed = [(path, data) for method, path, data in api.calls if method == "PATCH"]
+        self.assertEqual(changed, [(f"repos/{REPO}/pulls/8", {"state": "closed"}),
+                                   (endpoint, {"state": "closed", "state_reason": "not_planned"})])
 
 
 if __name__ == "__main__":
