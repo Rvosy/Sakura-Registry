@@ -14,6 +14,14 @@ python -m registry validate
 
 `registry/` 负责记录校验、下载、打包和 Catalog 生成，`tests/` 验证这些行为。`tools/check_history.py` 供 CI 对比变更前的版本记录。
 
+## 处理投稿 Issue
+
+作者通过 Issue 提交插件 ID 和仓库地址。当前由维护者在 Issue 中确认具体版本，将 Release 或 Tag 解析为完整 commit，读取该提交的整份 `plugin.yaml`，再参考 [Spine 记录](../examples/spine.json) 更新 `plugins.json`。
+
+新增插件添加条目，新版追加到 `versions`，撤回则修改对应版本的 `yanked` 和 `yank_reason`。维护者通过 PR 审阅记录并运行现有 CI，在描述中关联投稿 Issue；合并后回到 Issue 反馈结果。作者不需要编辑 Registry 文件。
+
+Issue 自动校验、生成收录 PR 和 `/approve` 等评论命令尚未实现。现有 Actions 在 Registry 提交或 PR 上校验、构建，不会因作者提交 Issue 自动运行。
+
 ## 构建目录
 
 构建正式收录记录：

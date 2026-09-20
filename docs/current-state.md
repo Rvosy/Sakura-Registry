@@ -21,7 +21,7 @@
 
 目录计划直接通过下载域名静态分发。没有新增 FastAPI、数据库、账号、投稿凭据或云厂商 SDK。首轮只构建预览，`example.invalid` 不是真实服务地址。
 
-审核对象包含具体版本、完整 commit 和 manifest 快照。历史保护已经实现；Issue 自动建 PR 和维护者评论命令仍待实施。生产 `plugins.json` 保持为空，样板独立放在 `examples/`。
+作者通过 Issue 表单投稿，维护者确认版本并维护收录记录。审核对象包含具体版本、完整 commit 和 manifest 快照。历史保护已经实现；Issue 自动校验、自动建 PR 和维护者评论命令仍待实施。生产 `plugins.json` 保持为空，样板独立放在 `examples/`。
 
 ## 验证范围
 

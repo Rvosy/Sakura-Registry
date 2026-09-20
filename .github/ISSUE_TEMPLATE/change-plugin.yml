@@ -1,0 +1,17 @@
+name: 修改或撤回收录
+description: 更正插件资料、迁移仓库，或撤回有问题的版本。
+title: "[收录变更] "
+body:
+  - type: input
+    id: plugin_id
+    attributes:
+      label: 插件 ID
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: 变更内容
+      description: 说明需要修改的资料；撤回或恢复版本时，请填写版本号和原因。
+    validations:
+      required: true
