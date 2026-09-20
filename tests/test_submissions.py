@@ -13,7 +13,7 @@ from registry.core import RegistryError
 from registry.submissions import (
     apply_candidate, approved_candidate, create_pull_request, prepare_candidate, require_maintainer,
 )
-from test_registry import COMMIT, MANIFEST, archive, records
+from test_registry import COMMIT, archive, records
 from tools import submission
 
 
@@ -41,12 +41,9 @@ class FakeGitHub:
 
 
 def source_api():
-    manifest = json.dumps(MANIFEST).encode()
     return FakeGitHub({
         ("GET", "repos/example/notes/commits/v1.0.0"): {"sha": COMMIT},
         ("GET", "repos/example/notes/releases/latest"): {"tag_name": "v1.0.0"},
-        ("GET", f"repos/example/notes/contents/plugin.yaml?ref={COMMIT}"): {
-            "type": "file", "size": len(manifest), "content": base64.b64encode(manifest).decode()},
     })
 
 
@@ -61,8 +58,7 @@ class SubmissionTests(unittest.TestCase):
             calls.append((repo, commit))
             return archive()
         result, package = prepare_candidate(issue(), empty(), source_api(), fetch)
-        self.assertEqual(result["plugin"]["versions"][0]["commit"], COMMIT)
-        self.assertEqual(result["plugin"]["versions"][0]["notes"], "")
+        self.assertEqual(result["plugin"], records()["plugins"][0])
         self.assertEqual(calls, [("https://github.com/example/notes", COMMIT)])
         with zipfile.ZipFile(io.BytesIO(package)) as built:
             self.assertIn("notes/plugin.py", built.namelist())
@@ -85,7 +81,7 @@ class SubmissionTests(unittest.TestCase):
     def test_submission_id_must_match_source(self):
         with self.assertRaisesRegex(RegistryError, "IDENTITY_MISMATCH"):
             prepare_candidate(issue(BODY.replace("\n\nnotes\n", "\n\nother\n")), empty(), source_api(),
-                              lambda *_: self.fail("must fail before source download"))
+                              lambda *_: archive())
 
     def test_issue_text_is_not_an_arbitrary_download_address(self):
         for repo in ("http://127.0.0.1/internal", "https://github.com/example/notes; echo secret"):
@@ -95,10 +91,9 @@ class SubmissionTests(unittest.TestCase):
 
     def test_new_version_keeps_existing_records_and_rejects_duplicates(self):
         proposal = candidate()
-        proposal["plugin"]["versions"][0].update(version="1.1.0", commit="b" * 40)
-        proposal["plugin"]["versions"][0]["manifest"]["version"] = "1.1.0"
+        proposal["plugin"]["versions"] = {"1.1.0": "b" * 40}
         result = apply_candidate(records(), proposal)
-        self.assertEqual(result["plugins"][0]["versions"][0], records()["plugins"][0]["versions"][0])
+        self.assertEqual(result["plugins"][0]["versions"]["1.0.0"], COMMIT)
         self.assertEqual(len(result["plugins"][0]["versions"]), 2)
         with self.assertRaisesRegex(RegistryError, "VERSION_ALREADY_LISTED"):
             apply_candidate(records(), candidate())
@@ -109,14 +104,14 @@ class SubmissionTests(unittest.TestCase):
                                               lambda *_: self.fail("yank must not download"))
         self.assertIsNone(package)
         yanked = apply_candidate(records(), proposal)
-        self.assertTrue(yanked["plugins"][0]["versions"][0]["yanked"])
+        self.assertEqual(yanked["plugins"][0]["yanked"], {"1.0.0": "Broken"})
         calls = []
         def fetch(repo, commit):
             calls.append(commit)
             return archive()
         restored, package = prepare_candidate(issue(body.replace("撤回版本", "恢复版本")), yanked, FakeGitHub({}), fetch)
         self.assertEqual(calls, [COMMIT])
-        self.assertFalse(apply_candidate(yanked, restored)["plugins"][0]["versions"][0]["yanked"])
+        self.assertEqual(apply_candidate(yanked, restored), records())
 
     def test_only_actual_repository_writers_can_approve(self):
         for permission in ("read", "triage", "none"):

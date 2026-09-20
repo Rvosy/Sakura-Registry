@@ -11,8 +11,8 @@ import zipfile
 from urllib.parse import quote
 
 from .core import (
-    COMMIT, ID, MAX_MANIFEST_BYTES, REPOSITORY, RegistryError, download_source,
-    package_source, parse_manifest, require, validate_history, validate_registry,
+    COMMIT, ID, REPOSITORY, RegistryError, download_source,
+    package_source, require, validate_history, validate_registry,
 )
 
 
@@ -56,24 +56,29 @@ def read_registry(api, repository, ref):
 def apply_candidate(records, candidate):
     updated = copy.deepcopy(records)
     plugin = candidate["plugin"]
+    validate_registry({"schema_version": 1, "plugins": [plugin]})
     existing = next((p for p in updated["plugins"] if p["id"] == plugin["id"]), None)
-    release = plugin["versions"][0]
+    version, commit = next(iter(plugin["versions"].items()))
     if candidate["operation"] == "submit":
         if existing is None:
             updated["plugins"].append(copy.deepcopy(plugin))
         else:
             require(existing["repository"] == plugin["repository"], "REPOSITORY_CHANGED")
-            previous = next((v for v in existing["versions"] if v["version"] == release["version"]), None)
-            require(previous is None, "VERSION_ALREADY_LISTED")
-            existing["versions"].append(copy.deepcopy(release))
+            require(version not in existing["versions"], "VERSION_ALREADY_LISTED")
+            existing["versions"][version] = commit
     else:
         require(existing is not None and existing["repository"] == plugin["repository"], "PLUGIN_NOT_LISTED")
-        previous = next((v for v in existing["versions"] if v["version"] == release["version"]), None)
-        require(previous is not None, "VERSION_NOT_LISTED")
-        require(previous["commit"] == release["commit"] and previous["manifest"] == release["manifest"],
-                "VERSION_HISTORY_REWRITTEN")
-        require(previous["yanked"] != release["yanked"], "VERSION_STATE_UNCHANGED")
-        previous.update(yanked=release["yanked"], yank_reason=release["yank_reason"])
+        require(version in existing["versions"], "VERSION_NOT_LISTED")
+        require(existing["versions"][version] == commit, "VERSION_HISTORY_REWRITTEN")
+        was_yanked = version in existing.get("yanked", {})
+        is_yanked = version in plugin.get("yanked", {})
+        require(was_yanked != is_yanked, "VERSION_STATE_UNCHANGED")
+        if is_yanked:
+            existing.setdefault("yanked", {})[version] = plugin["yanked"][version]
+        else:
+            del existing["yanked"][version]
+            if not existing["yanked"]:
+                del existing["yanked"]
     validate_history(updated, records)
     return updated
 
@@ -83,6 +88,7 @@ def prepare_candidate(issue, records, api, fetch=download_source):
     fields = fields_from_body(issue["body"])
     plugin_id = field(fields, "插件 ID")
     require(ID.fullmatch(plugin_id) is not None, "ID_INVALID")
+    package = None
     if "GitHub 仓库" in fields:
         repository = field(fields, "GitHub 仓库").rstrip("/").removesuffix(".git")
         require(REPOSITORY.fullmatch(repository) is not None, "REPOSITORY_INVALID")
@@ -99,13 +105,9 @@ def prepare_candidate(issue, records, api, fetch=download_source):
         resolved = api.request("GET", f"repos/{slug}/commits/{quote(ref, safe='')}")
         commit = resolved["sha"]
         require(COMMIT.fullmatch(commit) is not None, "EXACT_COMMIT_REQUIRED")
-        source = api.request("GET", f"repos/{slug}/contents/plugin.yaml?ref={commit}")
-        require(source.get("type") == "file" and source["size"] <= MAX_MANIFEST_BYTES, "MANIFEST_INVALID")
-        manifest = parse_manifest(base64.b64decode(source["content"]))
+        package, manifest = package_source(fetch(repository, commit), repository, commit)
         require(manifest["id"] == plugin_id, "MANIFEST_IDENTITY_MISMATCH")
-        release = {"version": manifest["version"], "commit": commit, "manifest": manifest,
-                   "notes": field(fields, "补充说明"), "yanked": False, "yank_reason": ""}
-        plugin = {"id": plugin_id, "repository": repository, "versions": [release]}
+        plugin = {"id": plugin_id, "repository": repository, "versions": {manifest["version"]: commit}}
         operation = "submit"
     else:
         action = field(fields, "操作")
@@ -113,19 +115,19 @@ def prepare_candidate(issue, records, api, fetch=download_source):
         existing = next((p for p in records["plugins"] if p["id"] == plugin_id), None)
         require(existing is not None, "PLUGIN_NOT_LISTED")
         version = field(fields, "版本号")
-        previous = next((v for v in existing["versions"] if v["version"] == version), None)
-        require(previous is not None, "VERSION_NOT_LISTED")
-        release = copy.deepcopy(previous)
-        release.update(yanked=action == "撤回版本", yank_reason=field(fields, "原因或说明") if action == "撤回版本" else "")
-        plugin = {"id": plugin_id, "repository": existing["repository"], "versions": [release]}
-        operation = "yank" if release["yanked"] else "restore"
+        commit = existing["versions"].get(version)
+        require(commit is not None, "VERSION_NOT_LISTED")
+        plugin = {"id": plugin_id, "repository": existing["repository"], "versions": {version: commit}}
+        operation = "yank" if action == "撤回版本" else "restore"
+        if operation == "yank":
+            plugin["yanked"] = {version: field(fields, "原因或说明")}
+        else:
+            package, manifest = package_source(fetch(plugin["repository"], commit), plugin["repository"], commit)
+            require(manifest["id"] == plugin_id and manifest["version"] == version, "MANIFEST_IDENTITY_MISMATCH")
     validate_registry({"schema_version": 1, "plugins": [plugin]})
     candidate = {"issue_number": issue["number"], "issue_body": issue["body"],
                  "operation": operation, "plugin": plugin}
     apply_candidate(records, candidate)
-    package = None
-    if not release["yanked"]:
-        package = package_source(fetch(plugin["repository"], release["commit"]), plugin["repository"], release)
     return candidate, package
 
 
@@ -184,12 +186,12 @@ def create_pull_request(api, repository, candidate, run_id):
             "message": f"feat: 处理插件投稿 #{number}", "tree": new_tree["sha"], "parents": [base]})
         api.request("POST", f"repos/{repository}/git/refs", {"ref": f"refs/heads/{branch}", "sha": commit["sha"]})
     plugin = candidate["plugin"]
-    release = plugin["versions"][0]
+    version, commit = next(iter(plugin["versions"].items()))
     action = {"submit": "收录", "yank": "撤回", "restore": "恢复"}[candidate["operation"]]
     pull = api.request("POST", f"repos/{repository}/pulls", {
-        "title": f"{action}：{plugin['id']} {release['version']}", "head": branch, "base": default,
-        "body": f"{action} `{plugin['id']}` 的 `{release['version']}` 版本。\n\n"
-                f"源码：{plugin['repository']}/tree/{release['commit']}\n\n"
+        "title": f"{action}：{plugin['id']} {version}", "head": branch, "base": default,
+        "body": f"{action} `{plugin['id']}` 的 `{version}` 版本。\n\n"
+                f"源码：{plugin['repository']}/tree/{commit}\n\n"
                 f"检查记录：https://github.com/{repository}/actions/runs/{run_id}\n\n"
                 f"由维护者批准此检查记录后生成；尚未合并或发布。\n\nCloses #{number}\n"})
     return pull, branch

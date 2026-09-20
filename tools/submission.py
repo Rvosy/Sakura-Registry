@@ -39,10 +39,10 @@ def main():
             if package is not None:
                 (output / "plugin.zip").write_bytes(package)
             plugin = candidate["plugin"]
-            release = plugin["versions"][0]
+            version, commit = next(iter(plugin["versions"].items()))
             run_id = os.environ["GITHUB_RUN_ID"]
-            body = (f"检查通过：`{plugin['id']}` / `{release['version']}`。\n\n"
-                    f"固定源码：{plugin['repository']}/tree/{release['commit']}\n\n"
+            body = (f"检查通过：`{plugin['id']}` / `{version}`。\n\n"
+                    f"固定源码：{plugin['repository']}/tree/{commit}\n\n"
                     f"[检查与预览包](https://github.com/{repository}/actions/runs/{run_id})\n\n"
                     f"维护者确认后评论 `/approve {run_id}`，生成收录 PR。")
             write_json(output / "result.json", {"body": body})

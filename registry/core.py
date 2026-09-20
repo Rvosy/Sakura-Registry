@@ -86,7 +86,7 @@ def validate_manifest(manifest: dict) -> None:
     module, sep, cls = entry.partition(":")
     require(sep == ":" and all(PYTHON_NAME.fullmatch(p) for p in module.split("."))
             and PYTHON_NAME.fullmatch(cls) is not None, "ENTRY_INVALID")
-    # Snapshots must remain JSON values; YAML timestamps or cycles are not wire data.
+    # Catalog metadata must be JSON values; YAML timestamps or cycles are not wire data.
     try:
         json.dumps(manifest, allow_nan=False)
     except (TypeError, ValueError, RecursionError) as error:
@@ -109,7 +109,8 @@ def validate_registry(value: dict) -> None:
             and isinstance(value["plugins"], list), "REGISTRY_INVALID")
     seen = set()
     for plugin in value["plugins"]:
-        require(isinstance(plugin, dict) and set(plugin) == {"id", "repository", "versions"}, "PLUGIN_INVALID")
+        require(isinstance(plugin, dict) and {"id", "repository", "versions"} <= set(plugin)
+                <= {"id", "repository", "versions", "yanked"}, "PLUGIN_INVALID")
         pid = plugin["id"]
         require(isinstance(pid, str) and ID.fullmatch(pid) is not None, "ID_INVALID")
         safe_parts(pid)
@@ -119,23 +120,18 @@ def validate_registry(value: dict) -> None:
         require(isinstance(repo, str) and REPOSITORY.fullmatch(repo) is not None
                 and repo.rsplit("/", 1)[1] not in {".", ".."} and not repo.endswith(".git"), "REPOSITORY_INVALID")
         versions = plugin["versions"]
-        require(isinstance(versions, list) and bool(versions), "VERSIONS_INVALID")
+        require(isinstance(versions, dict) and bool(versions), "VERSIONS_INVALID")
         numbers = set()
-        for release in versions:
-            require(isinstance(release, dict) and set(release) == {
-                "version", "commit", "manifest", "notes", "yanked", "yank_reason"}, "VERSION_RECORD_INVALID")
-            number = release["version"]
+        for number, commit in versions.items():
             version_match(number)
             require(number.casefold() not in numbers, "DUPLICATE_VERSION")
             numbers.add(number.casefold())
-            require(isinstance(release["commit"], str) and COMMIT.fullmatch(release["commit"]) is not None,
+            require(isinstance(commit, str) and COMMIT.fullmatch(commit) is not None,
                     "EXACT_COMMIT_REQUIRED")
-            validate_manifest(release["manifest"])
-            require(release["manifest"]["id"] == pid and release["manifest"]["version"] == number,
-                    "MANIFEST_IDENTITY_MISMATCH")
-            require(isinstance(release["notes"], str) and type(release["yanked"]) is bool
-                    and isinstance(release["yank_reason"], str), "VERSION_RECORD_INVALID")
-            require(bool(release["yank_reason"].strip()) == release["yanked"], "YANK_REASON_INVALID")
+        yanked = plugin.get("yanked", {})
+        require(isinstance(yanked, dict), "YANK_REASON_INVALID")
+        for number, reason in yanked.items():
+            require(number in versions and isinstance(reason, str) and bool(reason.strip()), "YANK_REASON_INVALID")
 
 
 def validate_history(current: dict, previous: dict) -> None:
@@ -145,11 +141,8 @@ def validate_history(current: dict, previous: dict) -> None:
     for old in previous["plugins"]:
         new = by_id.get(old["id"])
         require(new is not None and new["repository"] == old["repository"], "PLUGIN_HISTORY_REWRITTEN")
-        versions = {v["version"]: v for v in new["versions"]}
-        for release in old["versions"]:
-            candidate = versions.get(release["version"])
-            require(candidate is not None and all(candidate[k] == release[k]
-                    for k in ("commit", "manifest")), "VERSION_HISTORY_REWRITTEN")
+        for number, commit in old["versions"].items():
+            require(new["versions"].get(number) == commit, "VERSION_HISTORY_REWRITTEN")
 
 
 def source_url(repository: str, commit: str) -> str:
@@ -165,9 +158,9 @@ def download_source(repository: str, commit: str) -> bytes:
     return data
 
 
-def package_source(data: bytes, repository: str, release: dict) -> bytes:
+def package_source(data: bytes, repository: str, commit: str) -> tuple[bytes, dict]:
     require(len(data) <= MAX_SOURCE_BYTES, "SOURCE_TOO_LARGE")
-    prefix = f"{repository.rsplit('/', 1)[1]}-{release['commit']}"
+    prefix = f"{repository.rsplit('/', 1)[1]}-{commit}"
     files = {}
     paths = set()
     total = 0
@@ -202,7 +195,6 @@ def package_source(data: bytes, repository: str, release: dict) -> bytes:
     require(all(name == "plugin.yaml" or name.rsplit("/", 1)[-1].casefold() != "plugin.yaml" for name in files),
             "NESTED_MANIFEST")
     manifest = parse_manifest(files["plugin.yaml"])
-    require(manifest == release["manifest"], "MANIFEST_SNAPSHOT_MISMATCH")
     module = manifest["entry"].partition(":")[0].replace(".", "/") + ".py"
     require(module in files, "ENTRY_MISSING")
     visuals = manifest.get("visuals", [])
@@ -220,7 +212,7 @@ def package_source(data: bytes, repository: str, release: dict) -> bytes:
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = (stat.S_IFREG | 0o644) << 16
             archive.writestr(info, content)
-    return output.getvalue()
+    return output.getvalue(), manifest
 
 
 def validate_base_url(base_url: str) -> None:
@@ -237,12 +229,18 @@ def build_catalog(records: dict, output: Path, base_url: str, fetch=download_sou
     catalog = {"schema_version": 1, "plugins": []}
     for plugin in records["plugins"]:
         result = {"id": plugin["id"], "repository": plugin["repository"], "versions": []}
-        for release in plugin["versions"]:
-            item = {**release, "prerelease": bool(version_match(release["version"])[4]), "package": None}
-            if not release["yanked"]:
-                data = fetch(plugin["repository"], release["commit"])
-                package = package_source(data, plugin["repository"], release)
-                path = f"plugins/{plugin['id']}/{release['version']}/{release['commit']}/plugin.zip"
+        for version, commit in plugin["versions"].items():
+            reason = plugin.get("yanked", {}).get(version, "")
+            item = {"version": version, "commit": commit, "manifest": None,
+                    "yanked": bool(reason), "yank_reason": reason,
+                    "prerelease": bool(version_match(version)[4]), "package": None}
+            if not reason:
+                data = fetch(plugin["repository"], commit)
+                package, manifest = package_source(data, plugin["repository"], commit)
+                require(manifest["id"] == plugin["id"] and manifest["version"] == version,
+                        "MANIFEST_IDENTITY_MISMATCH")
+                item["manifest"] = manifest
+                path = f"plugins/{plugin['id']}/{version}/{commit}/plugin.zip"
                 target = output / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(package)

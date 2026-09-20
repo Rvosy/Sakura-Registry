@@ -4,47 +4,9 @@
     {
       "id": "sakura.visual.spine",
       "repository": "https://github.com/Rvosy/Sakura-Spine",
-      "versions": [
-        {
-          "version": "0.2.6",
-          "commit": "6f17c62310c5a7fdd60c7aab82391572db2d9031",
-          "manifest": {
-            "api": 4,
-            "id": "sakura.visual.spine",
-            "name": "Spine",
-            "author": "Sakura",
-            "description": "Spine 3.6 角色的表情、动画和编辑。",
-            "version": "0.2.6",
-            "entry": "plugin:SpinePlugin",
-            "enabled": true,
-            "priority": 40,
-            "provides": [
-              "sakura.visual.spine"
-            ],
-            "requires": [
-              "sakura.host.character",
-              "sakura.host.logging"
-            ],
-            "visuals": [
-              {
-                "type": "spine.json@1",
-                "service": "sakura.visual.spine",
-                "contract": 1,
-                "renderer": "renderer.mjs",
-                "editor": "editor.mjs"
-              }
-            ],
-            "presentation": {
-              "kind": "provider",
-              "category": "model",
-              "icon": "person-standing"
-            }
-          },
-          "notes": "首个分发样板：独立仓库中的 Spine 0.2.6。仅用于构建与安装验证。",
-          "yanked": false,
-          "yank_reason": ""
-        }
-      ]
+      "versions": {
+        "0.2.6": "6f17c62310c5a7fdd60c7aab82391572db2d9031"
+      }
     }
   ]
 }
