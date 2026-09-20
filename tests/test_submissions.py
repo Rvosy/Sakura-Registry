@@ -2,14 +2,19 @@ import base64
 import copy
 import io
 import json
+import os
+from pathlib import Path
+import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 from registry.core import RegistryError
 from registry.submissions import (
     apply_candidate, approved_candidate, create_pull_request, prepare_candidate, require_maintainer,
 )
 from test_registry import COMMIT, MANIFEST, archive, records
+from tools import submission
 
 
 REPO = "example/registry"
@@ -157,6 +162,7 @@ class SubmissionTests(unittest.TestCase):
         branch = "registry/issue-7-run-123"
         routes = {
             ("GET", f"repos/{REPO}/pulls?state=all&head=example%3Aregistry%2Fissue-7-run-123"): [],
+            ("GET", f"repos/{REPO}/pulls?state=open&per_page=100"): [],
             ("GET", f"repos/{REPO}"): {"default_branch": "main"},
             ("GET", f"repos/{REPO}/git/ref/heads/main"): {"object": {"sha": "base"}},
             ("GET", f"repos/{REPO}/contents/plugins.json?ref=base"): {"content": base64.b64encode(json.dumps(empty()).encode()).decode()},
@@ -179,6 +185,38 @@ class SubmissionTests(unittest.TestCase):
         again = FakeGitHub(routes)
         self.assertEqual(create_pull_request(again, REPO, candidate(), "123")[0], pull)
         self.assertEqual(len(again.calls), 1)
+        routes[("GET", f"repos/{REPO}/pulls?state=all&head=example%3Aregistry%2Fissue-7-run-123")] = []
+        routes[("GET", f"repos/{REPO}/pulls?state=open&per_page=100")] = [
+            {"html_url": "https://github.com/example/registry/pull/10",
+             "head": {"repo": {"full_name": REPO}, "ref": "registry/issue-7-run-122"}}]
+        conflict = FakeGitHub(routes)
+        with self.assertRaisesRegex(RegistryError, "已有收录 PR"):
+            create_pull_request(conflict, REPO, candidate(), "123")
+        self.assertTrue(all(method == "GET" for method, _, _ in conflict.calls))
+
+    def test_reject_closes_only_this_issues_generated_pr(self):
+        endpoint = f"repos/{REPO}/issues/7"
+        api = FakeGitHub({
+            ("GET", endpoint): issue(),
+            ("GET", f"repos/{REPO}/collaborators/owner/permission"): {"permission": "admin"},
+            ("GET", f"repos/{REPO}/pulls?state=open&per_page=100"): [
+                {"number": 8, "head": {"repo": {"full_name": REPO}, "ref": "registry/issue-7-run-123"}},
+                {"number": 9, "head": {"repo": {"full_name": REPO}, "ref": "registry/issue-70-run-124"}},
+            ],
+            ("PATCH", f"repos/{REPO}/pulls/8"): {},
+            ("POST", endpoint + "/comments"): {},
+            ("PATCH", endpoint): {},
+        })
+        event = {"issue": issue(), "sender": {"login": "owner"}, "comment": {"body": "/reject Needs fixes"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "event.json"
+            path.write_text(json.dumps(event), encoding="utf-8")
+            with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPO, "GITHUB_EVENT_PATH": str(path)}), \
+                    patch("sys.argv", ["submission.py", "moderate"]), patch.object(submission, "GitHub", return_value=api):
+                self.assertEqual(submission.main(), 0)
+        changed = [(path, data) for method, path, data in api.calls if method == "PATCH"]
+        self.assertEqual(changed, [(f"repos/{REPO}/pulls/8", {"state": "closed"}),
+                                   (endpoint, {"state": "closed", "state_reason": "not_planned"})])
 
 
 if __name__ == "__main__":

@@ -152,6 +152,13 @@ def approved_candidate(api, repository, run_id, issue):
     return candidate
 
 
+def open_submission_pulls(api, repository, number):
+    pulls = api.request("GET", f"repos/{repository}/pulls?state=open&per_page=100")
+    return [pull for pull in pulls if pull["head"]["repo"]
+            and pull["head"]["repo"]["full_name"] == repository
+            and pull["head"]["ref"].startswith(f"registry/issue-{number}-run-")]
+
+
 def create_pull_request(api, repository, candidate, run_id):
     number = candidate["issue_number"]
     branch = f"registry/issue-{number}-run-{run_id}"
@@ -160,6 +167,9 @@ def create_pull_request(api, repository, candidate, run_id):
     if pulls:
         require(pulls[0]["state"] == "open", "SUBMISSION_PR_ALREADY_CLOSED")
         return pulls[0], branch
+    pending = open_submission_pulls(api, repository, number)
+    if pending:
+        raise RegistryError(f"请先处理或关闭已有收录 PR：{pending[0]['html_url']}")
     default = api.request("GET", f"repos/{repository}")["default_branch"]
     base = api.request("GET", f"repos/{repository}/git/ref/heads/{default}")["object"]["sha"]
     records = read_registry(api, repository, base)
