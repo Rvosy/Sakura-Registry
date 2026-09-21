@@ -7,6 +7,13 @@
       "versions": {
         "0.2.6": "6f17c62310c5a7fdd60c7aab82391572db2d9031"
       }
+    },
+    {
+      "id": "sakura_mobile",
+      "repository": "https://github.com/Rvosy/Sakura-Mobile",
+      "versions": {
+        "1.0.0": "9a9ab324e158a215ece98673ded5c1fc695d2c0b"
+      }
     }
   ]
 }
