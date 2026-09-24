@@ -2,7 +2,7 @@
 
 [Sakura](https://github.com/Rvosy/Sakura) 的社区插件目录。插件作者在自己的 GitHub 仓库维护源码，通过这里提交收录和版本更新；Registry 从收录的源码版本构建安装包，供 Sakura 插件市场分发。
 
-通过 GitHub Issue 投稿，自动校验后由维护者审批收录。收录目录和安装包通过 GitHub Releases 分发，客户端可使用 GitHub 镜像下载，无需作者配置额外存储服务。
+插件作者通过 GitHub Issue 投稿，自动检查通过后由维护者审核收录。收录目录和安装包通过 GitHub Releases 分发，客户端可使用 GitHub 镜像下载，无需作者配置额外存储服务。
 
 ## 开发插件
 
@@ -22,7 +22,7 @@
 
 ## 更新与撤回
 
-发布新版后，再通过 [投稿表单](https://github.com/Rvosy/Sakura-Registry/issues/new?template=submit-plugin.yml) 提交版本信息。每个版本分别确认，已有版本的源码保持不变。
+发布新版后，再通过 [投稿表单](https://github.com/Rvosy/Sakura-Registry/issues/new?template=submit-plugin.yml) 提交版本信息。每个版本分别确认，已有版本的源码保持不变。更新插件仓库的 README 不会自动替换市场中已收录版本的说明；市场读取该版本固定提交中的文档。需要更新市场里的说明时，应随新版本提交收录。
 
 撤回或恢复版本时，提交 [版本变更 Issue](https://github.com/Rvosy/Sakura-Registry/issues/new?template=change-plugin.yml)，填写版本和原因，同样经过检查与审批。资料更正或仓库迁移请开普通 Issue 说明。撤回后保留历史记录，不再为该版本提供安装包。
 
