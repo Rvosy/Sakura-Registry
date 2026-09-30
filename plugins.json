@@ -43,6 +43,13 @@
       "versions": {
         "0.1.0": "e52eab8deb5d8deb340bc7dcd8521c53ccaa294e"
       }
+    },
+    {
+      "id": "local.sakura.lyric-bar",
+      "repository": "https://github.com/altria855-code/sakura-lyric-bar",
+      "versions": {
+        "1.1.0": "0763c105c7a2754da7713d6d6bbe8de52cf7d824"
+      }
     }
   ]
 }
