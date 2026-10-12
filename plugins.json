@@ -35,7 +35,8 @@
       "id": "sakura.tts.gpt-sovits",
       "repository": "https://github.com/Rvosy/Sakura-GPT-SoVITS",
       "versions": {
-        "0.1.0": "6155c31867b225ab4c676775d1f87acb8ebb3bd0"
+        "0.1.0": "6155c31867b225ab4c676775d1f87acb8ebb3bd0",
+        "0.2.0": "f0aa1110972ce36777670f503329202694f03050"
       }
     },
     {
