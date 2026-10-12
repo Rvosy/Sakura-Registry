@@ -21,7 +21,8 @@
       "id": "sakura.asr.sensevoice",
       "repository": "https://github.com/Rvosy/Sakura-SenseVoice",
       "versions": {
-        "0.1.0": "1ab586813f880a14d444a59c10a32bc6ce9135bd"
+        "0.1.0": "1ab586813f880a14d444a59c10a32bc6ce9135bd",
+        "0.2.0": "0a63af6dbbf5842d241f0a7ab73a5a321dc95e0d"
       }
     },
     {
