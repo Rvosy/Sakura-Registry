@@ -46,7 +46,8 @@
       "id": "sakura.tts.genie",
       "repository": "https://github.com/Rvosy/Sakura-Genie",
       "versions": {
-        "0.1.0": "e52eab8deb5d8deb340bc7dcd8521c53ccaa294e"
+        "0.1.0": "e52eab8deb5d8deb340bc7dcd8521c53ccaa294e",
+        "0.2.0": "ee2b288c2e4c1343011b60f320fd92282093f1b1"
       }
     },
     {
