@@ -65,6 +65,13 @@
       "versions": {
         "1.1.5": "259eccbf4c23fb8ff2d59e9e05e67f72c7ab89ad"
       }
+    },
+    {
+      "id": "local.sakura.boardgame",
+      "repository": "https://github.com/0115ayasakura/Sakura-boardgame",
+      "versions": {
+        "1.0.3-pre": "293e571faa6b37ae51b4ccfdb17b34d1254b51a5"
+      }
     }
   ]
 }
