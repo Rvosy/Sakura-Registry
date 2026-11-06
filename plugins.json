@@ -58,6 +58,13 @@
       "versions": {
         "1.1.0": "0763c105c7a2754da7713d6d6bbe8de52cf7d824"
       }
+    },
+    {
+      "id": "sakuratools.files",
+      "repository": "https://github.com/xing-mato/SakuraTools",
+      "versions": {
+        "1.1.5": "259eccbf4c23fb8ff2d59e9e05e67f72c7ab89ad"
+      }
     }
   ]
 }
