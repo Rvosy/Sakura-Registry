@@ -72,6 +72,13 @@
       "versions": {
         "1.0.3-pre": "293e571faa6b37ae51b4ccfdb17b34d1254b51a5"
       }
+    },
+    {
+      "id": "todo_reminder",
+      "repository": "https://github.com/llql1211/SakuraTodoReminder",
+      "versions": {
+        "0.1.0": "3b6272c4d3338b136f2a04148f1bb4699b51617d"
+      }
     }
   ]
 }
