@@ -79,6 +79,13 @@
       "versions": {
         "0.1.0": "3b6272c4d3338b136f2a04148f1bb4699b51617d"
       }
+    },
+    {
+      "id": "sakura.model.codex",
+      "repository": "https://github.com/Rvosy/sakura-openai-official",
+      "versions": {
+        "0.1.1": "04977a81c30f7921bd37b431a7eacdc0369f0ffe"
+      }
     }
   ]
 }
