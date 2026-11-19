@@ -5,10 +5,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
     inputs:
+      ref:
+        required: true
+        type: string
       base_sha:
-        description: Base commit for a generated submission PR
-        required: false
+        required: true
         type: string
 
 permissions:
@@ -25,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -36,7 +40,7 @@ jobs:
       - run: python -m registry validate --registry examples/spine.json
       - name: Reject rewritten history
         env:
-          REGISTRY_BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base_sha }}
+          REGISTRY_BASE: ${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}
         run: python tools/check_history.py
 
   sample:
@@ -46,12 +50,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - name: Build pinned sample without executing upstream code
+        if: inputs.ref == ''
         run: python -m registry build --registry examples/spine.json --output dist/sample --base-url https://example.invalid
       - name: Build accepted registry records
         run: python -m registry build --output dist/registry --base-url https://example.invalid
@@ -61,3 +67,4 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 14
+          overwrite: true

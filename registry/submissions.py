@@ -167,8 +167,11 @@ def create_pull_request(api, repository, candidate, run_id):
     owner = repository.split("/")[0]
     pulls = api.request("GET", f"repos/{repository}/pulls?state=all&head={quote(owner + ':' + branch, safe='')}")
     if pulls:
-        require(pulls[0]["state"] == "open", "SUBMISSION_PR_ALREADY_CLOSED")
-        return pulls[0], branch
+        pull = pulls[0]
+        if pull["state"] != "open":
+            pull = api.request("GET", f"repos/{repository}/pulls/{pull['number']}")
+            require(pull["merged"], "SUBMISSION_PR_ALREADY_CLOSED")
+        return pull
     pending = open_submission_pulls(api, repository, number)
     if pending:
         raise RegistryError(f"请先处理或关闭已有收录 PR：{pending[0]['html_url']}")
@@ -193,5 +196,28 @@ def create_pull_request(api, repository, candidate, run_id):
         "body": f"{action} `{plugin['id']}` 的 `{version}` 版本。\n\n"
                 f"源码：{plugin['repository']}/tree/{commit}\n\n"
                 f"检查记录：https://github.com/{repository}/actions/runs/{run_id}\n\n"
-                f"由维护者批准此检查记录后生成；尚未合并或发布。\n\nCloses #{number}\n"})
-    return pull, branch
+                f"投稿 #{number}。校验通过后自动合并并发布。\n"})
+    return pull
+
+
+def submission_revision(api, repository, pull, candidate):
+    head = pull["head"]["sha"]
+    base = pull["base"]["sha"]
+    comparison = api.request("GET", f"repos/{repository}/compare/{base}...{head}")
+    require([file["filename"] for file in comparison["files"]] == ["plugins.json"],
+            "SUBMISSION_PR_HAS_OTHER_CHANGES")
+    base = comparison["merge_base_commit"]["sha"]
+    expected = apply_candidate(read_registry(api, repository, base), candidate)
+    require(read_registry(api, repository, head) == expected, "SUBMISSION_PR_DIFFERS_FROM_APPROVAL")
+    return head, base
+
+
+def merge_submission_pull(api, repository, number, head, default_branch):
+    endpoint = f"repos/{repository}/pulls/{number}"
+    pull = api.request("GET", endpoint)
+    require(pull["base"]["ref"] == default_branch and pull["head"]["sha"] == head,
+            "SUBMISSION_PR_CHANGED_AFTER_VALIDATION")
+    if not pull["merged"]:
+        result = api.request("PUT", endpoint + "/merge", {"sha": head, "merge_method": "squash"})
+        if not result["merged"]:
+            raise RegistryError(result["message"])

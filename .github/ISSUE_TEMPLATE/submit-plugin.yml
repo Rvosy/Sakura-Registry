@@ -1,5 +1,5 @@
 name: 插件投稿或新版
-description: 自动校验插件，维护者批准后生成收录 PR。
+description: 自动检查插件，维护者批准后自动收录并发布。
 title: "[插件投稿] "
 body:
   - type: input

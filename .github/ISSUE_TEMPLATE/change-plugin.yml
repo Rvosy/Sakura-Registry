@@ -1,5 +1,5 @@
 name: 撤回或恢复版本
-description: 自动检查收录状态，维护者批准后生成变更 PR。
+description: 自动检查收录状态，维护者批准后发布变更。
 title: "[收录变更] "
 body:
   - type: input

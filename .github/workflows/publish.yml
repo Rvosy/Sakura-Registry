@@ -5,22 +5,31 @@ on:
     branches: [main]
     paths: [plugins.json]
   workflow_dispatch:
+  workflow_call:
+    outputs:
+      release_url:
+        value: ${{ jobs.publish.outputs.release_url }}
 
 permissions:
   contents: read
 
 concurrency:
   group: publish-catalog
-  cancel-in-progress: false
+  queue: max
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.revision.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: refs/heads/main
           fetch-depth: 0
           persist-credentials: false
+      - id: revision
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -36,14 +45,21 @@ jobs:
           name: github-distribution
           path: dist/registry/
           if-no-files-found: error
+          overwrite: true
   publish:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      release_url: ${{ steps.release.outputs.url }}
+    env:
+      RELEASE_TAG: catalog-${{ needs.build.outputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RELEASE_ROOT: ${{ github.server_url }}/${{ github.repository }}/releases
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.build.outputs.commit }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -54,15 +70,19 @@ jobs:
           name: github-distribution
           path: dist/registry
       - name: Prepare assets
-        env:
-          RELEASE_URL: https://github.com/${{ github.repository }}/releases/download/catalog-${{ github.sha }}-${{ github.run_id }}
-        run: python tools/release_assets.py --distribution dist/registry --output dist/assets --base-url "$RELEASE_URL"
+        run: python tools/release_assets.py --distribution dist/registry --output dist/assets --base-url "$RELEASE_ROOT/download/$RELEASE_TAG"
       - name: Publish completed catalog and packages
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: catalog-${{ github.sha }}-${{ github.run_id }}
-          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
         run: |
+          current_records=$(gh api "repos/$GITHUB_REPOSITORY/contents/plugins.json?ref=main" --jq .sha)
+          if [ "$current_records" != "$(git rev-parse HEAD:plugins.json)" ]; then
+            echo "main 的插件收录记录已更新，请重新运行整个工作流构建最新目录。" >&2
+            exit 1
+          fi
           gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" --draft --title "插件目录" --notes "从已收录的固定源码构建。"
           gh release upload "$RELEASE_TAG" dist/assets/*
           gh release edit "$RELEASE_TAG" --draft=false --latest
+          echo "url=$RELEASE_ROOT/tag/$RELEASE_TAG" >> "$GITHUB_OUTPUT"

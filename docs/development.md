@@ -21,18 +21,20 @@ python -m registry validate
 | Issue 评论 | 操作 |
 |---|---|
 | `/recheck` | 作者或维护者重新检查当前投稿 |
-| `/approve 检查编号` | 维护者批准该次检查，生成收录 PR；检查编号由机器人给出 |
+| `/approve 检查编号` | 维护者批准机器人回贴的检查结果，随后自动校验、合并并发布 |
 | `/reject 原因` | 维护者关闭投稿及其尚未合并的自动收录 PR |
 
-审批权限使用 GitHub 仓库实际的 write/maintain/admin 权限。审批读取该次成功检查的 artifact，不重新解析会移动的 Tag；Issue 内容已经变化时要求重新检查。每个检查编号对应独立分支，重复审批返回同一个未关闭 PR，不覆盖维护者修改。同一 Issue 已有未关闭 PR 时，先处理或关闭它，再审批另一次检查。
+审批使用仓库的 write、maintain 或 admin 权限，读取对应成功检查的 artifact。Issue 正文变更后需要重新检查。每个检查编号对应独立分支，重跑时复用同一个收录 PR。同一 Issue 已有另一个未关闭的收录 PR 时，先处理或关闭它，再审批新的检查。
 
-生成的 PR 只修改 `plugins.json`，由维护者查看差异与 CI 后合并；不会自动合并。机器人显式 dispatch `validate.yml`，同时传入基线 commit 检查历史，分支校验会自动运行。合并后沿用 main 分支的构建流程，并通过 `Closes #编号` 关闭投稿。
+审批流程调用 `validate.yml` 校验收录 PR 的固定提交，合并前再确认 Issue 正文和 PR 提交。通过后自动 squash 合并，并调用 `publish.yml` 发布 main 中的目录。只有发布成功才回贴发布链接并关闭投稿。
 
-GitHub 对 `GITHUB_TOKEN` 创建的 PR 另有平台规则：普通 `pull_request` 工作流进入待审批状态，PR 可能出现 “Approve workflows to run” 按钮。维护者可批准其执行；这与已经自动运行的分支校验是两次独立运行。这里保留 GitHub 原有审批，不额外配置 PAT 或 GitHub App。参见 [GitHub 工作流触发规则](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow)。
+审批流程直接调用校验和发布工作流。PR 页面可能显示 GitHub 自带的工作流审批按钮，收录流程会使用审批运行里的校验结果和发布结果。参见 [GitHub 工作流触发规则](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)。
+
+失败后按 Issue 里的运行链接查看原因，修正后可选择 “Re-run failed jobs”。如果发布前 main 的收录记录已变更，选择 “Re-run all jobs” 重新构建当前目录，已合并的收录 PR 会被复用。
 
 新版本追加到 `versions`；撤回和恢复通过版本变更表单，沿用检查、审批、PR 流程。资料更正和仓库迁移由维护者手动处理。相互冲突的收录 PR 按普通 Git 冲突处理，不增加自动重试或重写分支机制。
 
-仓库需开启 Actions 的 “Allow GitHub Actions to create and approve pull requests”。默认 token 权限仍保持 read；源码处理任务只有只读权限，回贴结果和创建 PR 的任务分别申请需要的写权限。无需 PAT、App 私钥或服务器。
+仓库需开启 Actions 的 “Allow GitHub Actions to create and approve pull requests”，并允许 Actions 使用仓库令牌合并通过校验的收录 PR。源码校验和构建只使用读权限，创建 PR、合并、发布和回贴分别由对应任务申请写权限。
 
 代码落点：`registry/submissions.py` 处理 GitHub 数据和候选记录，`tools/submission.py` 是工作流入口。检查 artifact 保留 30 天，过期直接重新检查。基础设施故障保留失败日志，查明原因后再手动恢复，不自动重试测试到成功。
 
