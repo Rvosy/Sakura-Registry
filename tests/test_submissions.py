@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 from registry.core import RegistryError
 from registry.submissions import (
-    apply_candidate, approved_candidate, create_pull_request, prepare_candidate, require_maintainer,
+    apply_candidate, approved_candidate, create_pull_request, merge_submission_pull,
+    prepare_candidate, require_maintainer, submission_revision,
 )
 from test_registry import COMMIT, archive, records
 from tools import submission
@@ -49,6 +50,15 @@ def source_api():
 
 def candidate():
     return {"issue_number": 7, "issue_body": BODY, "operation": "submit", "plugin": records()["plugins"][0]}
+
+
+def run_submission(mode, api, event, **env):
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "event.json"
+        path.write_text(json.dumps(event), encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPO, "GITHUB_EVENT_PATH": str(path), **env}), \
+                patch("sys.argv", ["submission.py", mode]), patch.object(submission, "GitHub", return_value=api):
+            return submission.main()
 
 
 class SubmissionTests(unittest.TestCase):
@@ -169,8 +179,7 @@ class SubmissionTests(unittest.TestCase):
             ("POST", f"repos/{REPO}/pulls"): {"number": 8, "state": "open"},
         }
         api = FakeGitHub(routes)
-        pull, actual_branch = create_pull_request(api, REPO, candidate(), "123")
-        self.assertEqual(actual_branch, branch)
+        pull = create_pull_request(api, REPO, candidate(), "123")
         tree = next(data for method, path, data in api.calls if method == "POST" and path.endswith("/git/trees"))
         self.assertEqual([entry["path"] for entry in tree["tree"]], ["plugins.json"])
         self.assertEqual(json.loads(tree["tree"][0]["content"]), records())
@@ -178,7 +187,7 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(ref, {"ref": f"refs/heads/{branch}", "sha": "new-commit"})
         routes[("GET", f"repos/{REPO}/pulls?state=all&head=example%3Aregistry%2Fissue-7-run-123")] = [pull]
         again = FakeGitHub(routes)
-        self.assertEqual(create_pull_request(again, REPO, candidate(), "123")[0], pull)
+        self.assertEqual(create_pull_request(again, REPO, candidate(), "123"), pull)
         self.assertEqual(len(again.calls), 1)
         routes[("GET", f"repos/{REPO}/pulls?state=all&head=example%3Aregistry%2Fissue-7-run-123")] = []
         routes[("GET", f"repos/{REPO}/pulls?state=open&per_page=100")] = [
@@ -188,6 +197,69 @@ class SubmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(RegistryError, "已有收录 PR"):
             create_pull_request(conflict, REPO, candidate(), "123")
         self.assertTrue(all(method == "GET" for method, _, _ in conflict.calls))
+
+    def test_existing_pr_must_match_approved_records_before_validation(self):
+        pull = {"base": {"sha": "main"}, "head": {"sha": "head"}}
+        api = FakeGitHub({
+            ("GET", f"repos/{REPO}/compare/main...head"): {
+                "merge_base_commit": {"sha": "base"}, "files": [{"filename": "plugins.json"}]},
+            ("GET", f"repos/{REPO}/contents/plugins.json?ref=base"): {
+                "content": base64.b64encode(json.dumps(empty()).encode()).decode()},
+            ("GET", f"repos/{REPO}/contents/plugins.json?ref=head"): {
+                "content": base64.b64encode(json.dumps(records()).encode()).decode()},
+        })
+        self.assertEqual(submission_revision(api, REPO, pull, candidate()), ("head", "base"))
+        api.routes[("GET", f"repos/{REPO}/contents/plugins.json?ref=head")] = {
+            "content": base64.b64encode(json.dumps(empty()).encode()).decode()}
+        with self.assertRaisesRegex(RegistryError, "SUBMISSION_PR_DIFFERS_FROM_APPROVAL"):
+            submission_revision(api, REPO, pull, candidate())
+
+    def test_merge_uses_validated_head_and_can_resume_after_merge(self):
+        endpoint = f"repos/{REPO}/pulls/8"
+        pull = {"base": {"ref": "main"}, "head": {"sha": "other"}, "merged": False}
+        api = FakeGitHub({
+            ("GET", endpoint): pull,
+            ("PUT", endpoint + "/merge"): {"merged": True},
+        })
+        with self.assertRaisesRegex(RegistryError, "SUBMISSION_PR_CHANGED_AFTER_VALIDATION"):
+            merge_submission_pull(api, REPO, 8, "head", "main")
+        self.assertEqual([method for method, _, _ in api.calls], ["GET"])
+        pull["head"]["sha"] = "head"
+        merge_submission_pull(api, REPO, 8, "head", "main")
+        self.assertEqual(api.calls[-1], ("PUT", endpoint + "/merge", {"sha": "head", "merge_method": "squash"}))
+        pull["merged"] = True
+        merge_submission_pull(api, REPO, 8, "head", "main")
+        self.assertEqual(sum(method == "PUT" for method, _, _ in api.calls), 1)
+
+    def test_reviewed_issue_merges_after_ci_only_if_still_current(self):
+        endpoint = f"repos/{REPO}/pulls/8"
+        event = {"issue": issue(), "repository": {"default_branch": "main"}}
+        routes = {
+            ("GET", f"repos/{REPO}/issues/7"): issue(),
+            ("GET", endpoint): {"base": {"ref": "main"}, "head": {"sha": "head"}, "merged": False},
+            ("PUT", endpoint + "/merge"): {"merged": True},
+        }
+        api = FakeGitHub(routes)
+        self.assertEqual(run_submission("merge", api, event, PULL_REQUEST="8", HEAD_SHA="head"), 0)
+        self.assertEqual(api.calls[-1][0], "PUT")
+
+        routes[("GET", f"repos/{REPO}/issues/7")] = issue(BODY + "edited")
+        api = FakeGitHub(routes)
+        with patch("sys.stderr", new_callable=io.StringIO) as log:
+            self.assertEqual(run_submission("merge", api, event, PULL_REQUEST="8", HEAD_SHA="head"), 1)
+        self.assertIn("ISSUE_CHANGED_RECHECK_REQUIRED", log.getvalue())
+        self.assertTrue(all(method == "GET" for method, _, _ in api.calls))
+
+    def test_issue_is_closed_only_after_publication(self):
+        endpoint = f"repos/{REPO}/issues/7"
+        release = f"https://github.com/{REPO}/releases/tag/catalog"
+        for stage, published in (("校验收录 PR", ""), ("发布市场目录", ""), ("", release)):
+            with self.subTest(stage=stage, published=published):
+                api = FakeGitHub({("POST", endpoint + "/comments"): {}, ("PATCH", endpoint): {}})
+                self.assertEqual(run_submission("finish", api, {"issue": issue()}, GITHUB_RUN_ID="123",
+                                                FAILED_STAGE=stage, CATALOG_RELEASE=published), 0)
+                self.assertEqual(any(method == "PATCH" for method, _, _ in api.calls), bool(published))
+                self.assertIn(published or "/actions/runs/123", api.calls[-1][2]["body"])
 
     def test_reject_closes_only_this_issues_generated_pr(self):
         endpoint = f"repos/{REPO}/issues/7"
@@ -203,12 +275,7 @@ class SubmissionTests(unittest.TestCase):
             ("PATCH", endpoint): {},
         })
         event = {"issue": issue(), "sender": {"login": "owner"}, "comment": {"body": "/reject Needs fixes"}}
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "event.json"
-            path.write_text(json.dumps(event), encoding="utf-8")
-            with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPO, "GITHUB_EVENT_PATH": str(path)}), \
-                    patch("sys.argv", ["submission.py", "moderate"]), patch.object(submission, "GitHub", return_value=api):
-                self.assertEqual(submission.main(), 0)
+        self.assertEqual(run_submission("moderate", api, event), 0)
         changed = [(path, data) for method, path, data in api.calls if method == "PATCH"]
         self.assertEqual(changed, [(f"repos/{REPO}/pulls/8", {"state": "closed"}),
                                    (endpoint, {"state": "closed", "state_reason": "not_planned"})])

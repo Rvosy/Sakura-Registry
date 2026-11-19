@@ -14,7 +14,7 @@
 
 1. 将插件源码推送到公开 GitHub 仓库。
 2. 打开 [插件投稿表单](https://github.com/Rvosy/Sakura-Registry/issues/new?template=submit-plugin.yml)，填写插件 ID 和仓库地址；需要指定版本时附上 Release、Tag 或 commit。
-3. 提交 Issue，等待自动检查结果。维护者批准后，机器人生成收录 PR，合并后自动构建并发布目录。
+3. 提交 Issue，等待自动检查和维护者审批。批准后，机器人创建收录 PR，校验通过后自动合并并发布。发布结果会回贴到 Issue。
 
 作者无需 Fork 本仓库或填写 Registry JSON。机器人解析版本、固定 commit 并试打包；检查失败时会在 Issue 中反馈原因。投稿细节见 [投稿指南](CONTRIBUTING.md)。
 

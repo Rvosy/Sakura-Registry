@@ -39,7 +39,7 @@ JSON 使用标准解析器，YAML 与 Sakura 一样使用 `yaml.safe_load`，支
 
 构建必须使用全新输出目录，全部成功后才写入 `catalog/v1/catalog.json`。不会覆盖既有目录；失败目录不得发布。构建结果的顺序不代表推荐顺序，客户端不能直接取最后一个版本安装。
 
-GitHub 分发由 `publish.yml` 执行：构建任务只读，发布任务将完整产物上传到新的草稿 Release，上传全部成功后才公开并设为 latest。Tag 包含收录提交和运行编号，不覆盖已有 Release。每个 ZIP 改用 `<id>_<version>_<commit>.zip` 作为附件名；发布的 Catalog 中 `package.path` 和 `package.url` 对应这个附件，ZIP 内容保持不变。
+GitHub 分发由 `publish.yml` 执行。构建任务只读，发布任务将完整产物上传到新的草稿 Release，上传全部成功后才公开并设为 latest。Tag 包含 main 提交、运行编号和尝试次数。每个 ZIP 使用 `<id>_<version>_<commit>.zip` 作为附件名，Catalog 中的 `package.path` 和 `package.url` 指向对应附件。
 
 目录入口为 `https://github.com/Rvosy/Sakura-Registry/releases/latest/download/catalog.json`。无需 VPS、多吉云或 R2；以后更换分发站时使用 Catalog 中的 HTTPS 地址即可。
 
