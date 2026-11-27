@@ -93,6 +93,13 @@
       "versions": {
         "0.1.0": "2428f01d95d78db1c230cd42abc6e1ad678b8938"
       }
+    },
+    {
+      "id": "sakura.calendar",
+      "repository": "https://github.com/rsh-cyber/-sakura-calendar",
+      "versions": {
+        "1.0.0": "b5db8dd8bfada8b216ad2cc0c17302bc6bea9dbe"
+      }
     }
   ]
 }
