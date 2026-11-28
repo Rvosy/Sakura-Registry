@@ -91,7 +91,8 @@
       "id": "sakura.model.antigravity",
       "repository": "https://github.com/YukiRinne/sakura_antigravity_acp",
       "versions": {
-        "0.1.0": "2428f01d95d78db1c230cd42abc6e1ad678b8938"
+        "0.1.0": "2428f01d95d78db1c230cd42abc6e1ad678b8938",
+        "0.1.1": "040fe938f42b00e0b67bb678fd5036265e0f1670"
       }
     },
     {
